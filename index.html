@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)" />
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+<meta name="description" content="Track your Invisalign tray-out time and stay on target — every day. Deterministic, local-first, private." />
+<link rel="manifest" href="manifest.webmanifest" />
+<link rel="icon" type="image/svg+xml" href="icon-192.svg" />
+<link rel="apple-touch-icon" href="icon-192.svg" />
+<title>Invisalign Tracker</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<!-- App chrome: status-bar spacer, top header, main, bottom nav -->
+<header class="app-header">
+  <div class="tray-pill" id="trayPill" aria-label="Current tray">
+    <span class="tray-pill__label">Tray</span>
+    <span class="tray-pill__num" id="trayNum">—</span>
+    <span class="tray-pill__of">of</span>
+    <span class="tray-pill__total" id="trayTotal">—</span>
+  </div>
+</header>
+
+<main id="main" class="app-main">
+  <!-- Today -->
+  <section class="screen screen--active" id="screen-today" aria-label="Today">
+    <div class="screen-title">TODAY</div>
+    <div class="today-grid" id="todayGrid"><!-- rendered by JS --></div>
+    <div class="forecast-card" id="forecastCard"><!-- rendered by JS --></div>
+    <div class="next-removal-card" id="nextRemovalCard"><!-- rendered by JS --></div>
+    <div class="multi-removal-card" id="multiRemovalCard" hidden><!-- rendered by JS --></div>
+    <div class="add-row">
+      <button class="btn btn--primary" id="addBtn">
+        <span class="btn__plus" aria-hidden="true">+</span>
+        <span>Add Removal</span>
+      </button>
+    </div>
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+  </section>
+
+  <!-- History -->
+  <section class="screen" id="screen-history" aria-label="History">
+    <div class="screen-title">HISTORY</div>
+    <div id="historyList" class="history-list"></div>
+  </section>
+
+  <!-- Tray -->
+  <section class="screen" id="screen-tray" aria-label="Tray">
+    <div class="screen-title">TRAY</div>
+    <div id="trayContent" class="tray-content"></div>
+  </section>
+
+  <!-- Insights -->
+  <section class="screen" id="screen-insights" aria-label="Insights">
+    <div class="screen-title">INSIGHTS</div>
+    <div id="insightsContent" class="insights-content"></div>
+  </section>
+
+  <!-- Settings -->
+  <section class="screen" id="screen-settings" aria-label="Settings">
+    <div class="screen-title">SETTINGS</div>
+    <div id="settingsContent" class="settings-content"></div>
+  </section>
+
+  <!-- Day Detail (modal screen) -->
+  <section class="screen" id="screen-day" aria-label="Day detail">
+    <button class="back-btn" id="dayBackBtn" aria-label="Back">‹ Back</button>
+    <div id="dayContent" class="day-content"></div>
+  </section>
+</main>
+
+<!-- Bottom tab bar -->
+<nav class="tabbar" role="tablist" aria-label="Primary">
+  <button class="tab tab--active" data-screen="today" role="tab" aria-selected="true">
+    <span class="tab__icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="22" height="22"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 7v5l3 2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+    </span>
+    <span class="tab__label">Today</span>
+  </button>
+  <button class="tab" data-screen="history" role="tab" aria-selected="false">
+    <span class="tab__icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="22" height="22"><rect x="4" y="5" width="16" height="15" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M8 3v4M16 3v4M4 10h16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+    </span>
+    <span class="tab__label">History</span>
+  </button>
+  <button class="tab" data-screen="tray" role="tab" aria-selected="false">
+    <span class="tab__icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="22" height="22"><path d="M5 9c0-2 2-4 7-4s7 2 7 4v6c0 2-2 4-7 4s-7-2-7-4V9z" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M9 9v6M15 9v6" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+    </span>
+    <span class="tab__label">Tray</span>
+  </button>
+  <button class="tab" data-screen="insights" role="tab" aria-selected="false">
+    <span class="tab__icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="22" height="22"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+    </span>
+    <span class="tab__label">Insights</span>
+  </button>
+  <button class="tab" data-screen="settings" role="tab" aria-selected="false">
+    <span class="tab__icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="22" height="22"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.11-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06A2 2 0 1 1 4.16 16.93l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.56 9a1.7 1.7 0 0 0-.34-1.87l-.06-.06A2 2 0 1 1 7 4.24l.06.06a1.7 1.7 0 0 0 1.87.34H9a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87V9a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1z" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>
+    </span>
+    <span class="tab__label">Settings</span>
+  </button>
+</nav>
+
+<!-- Add-Removal sheet -->
+<div class="sheet" id="addSheet" hidden aria-hidden="true">
+  <div class="sheet__backdrop" data-close></div>
+  <div class="sheet__panel" role="dialog" aria-labelledby="addTitle">
+    <div class="sheet__grabber" aria-hidden="true"></div>
+    <h2 class="sheet__title" id="addTitle">Add Removal</h2>
+    <p class="sheet__prompt">How many minutes?</p>
+    <form id="addForm" autocomplete="off" novalidate>
+      <input
+        id="addInput"
+        class="add-input"
+        type="text"
+        inputmode="numeric"
+        pattern="[0-9]*"
+        placeholder="e.g. 35"
+        aria-label="Minutes"
+        autofocus />
+      <p class="add-error" id="addError" hidden></p>
+      <div class="sheet__actions">
+        <button type="button" class="btn btn--ghost" data-close>Cancel</button>
+        <button type="submit" class="btn btn--primary">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Edit-Event sheet -->
+<div class="sheet" id="editSheet" hidden aria-hidden="true">
+  <div class="sheet__backdrop" data-edit-close></div>
+  <div class="sheet__panel" role="dialog" aria-labelledby="editTitle">
+    <div class="sheet__grabber" aria-hidden="true"></div>
+    <h2 class="sheet__title" id="editTitle">Edit Removal</h2>
+    <p class="sheet__prompt">New duration (minutes)</p>
+    <form id="editForm" autocomplete="off" novalidate>
+      <input
+        id="editInput"
+        class="add-input"
+        type="text"
+        inputmode="numeric"
+        pattern="[0-9]*"
+        aria-label="Minutes" />
+      <p class="add-error" id="editError" hidden></p>
+      <div class="sheet__actions">
+        <button type="button" class="btn btn--ghost" data-edit-close>Cancel</button>
+        <button type="submit" class="btn btn--primary">Save</button>
+      </div>
+      <div class="sheet__danger">
+        <button type="button" class="btn btn--danger" id="editDelete">Delete Event</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Confirm dialog -->
+<div class="sheet" id="confirmSheet" hidden aria-hidden="true">
+  <div class="sheet__backdrop" data-confirm-close></div>
+  <div class="sheet__panel sheet__panel--alert" role="alertdialog" aria-labelledby="confirmTitle">
+    <h2 class="sheet__title" id="confirmTitle"></h2>
+    <p class="sheet__prompt" id="confirmBody"></p>
+    <div class="sheet__actions">
+      <button type="button" class="btn btn--ghost" id="confirmCancel">Cancel</button>
+      <button type="button" class="btn btn--danger" id="confirmOk">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<script src="rules.js"></script>
+<script src="store.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

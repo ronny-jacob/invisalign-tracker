@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)" />
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+<title>Rules Engine — Acceptance Tests</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    font: 14px -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+    margin: 0; padding: 24px; background: #f2f2f7; color: #000;
+  }
+  @media (prefers-color-scheme: dark) {
+    body { background: #000; color: #fff; }
+  }
+  h1 { font-size: 22px; margin: 0 0 16px; font-weight: 600; }
+  .summary { padding: 12px 16px; border-radius: 12px; background: rgba(127,127,127,.12); margin-bottom: 16px; }
+  .summary.fail { background: rgba(255, 59, 48, .15); }
+  .summary.pass { background: rgba(52, 199, 89, .15); }
+  ul { list-style: none; padding: 0; margin: 0; }
+  li {
+    padding: 10px 12px; border-radius: 10px; background: rgba(127,127,127,.08);
+    margin-bottom: 6px; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px;
+  }
+  li.fail { background: rgba(255, 59, 48, .15); }
+  li.pass { background: rgba(52, 199, 89, .08); }
+  .ok { color: #34c759; font-weight: 600; }
+  .bad { color: #ff3b30; font-weight: 600; }
+  .check { color: inherit; opacity: .8; }
+  button {
+    font: inherit; padding: 8px 16px; border-radius: 999px;
+    background: #007aff; color: white; border: 0; cursor: pointer;
+  }
+  @media (prefers-color-scheme: dark) {
+    button { background: #0a84ff; }
+  }
+</style>
+</head>
+<body>
+<h1>Rules Engine — Acceptance Tests</h1>
+<div id="summary" class="summary">Running…</div>
+<button id="run">Run again</button>
+<ul id="results" style="margin-top:16px"></ul>
+
+<script src="rules.js"></script>
+<script src="rules-tests.js"></script>
+<script>
+function render() {
+  const { pass, fail, results } = window.RulesTests.runAll();
+  const s = document.getElementById('summary');
+  s.textContent = `${pass} passed · ${fail} failed (${results.length} total)`;
+  s.classList.toggle('fail', fail > 0);
+  s.classList.toggle('pass', fail === 0);
+  const ul = document.getElementById('results');
+  ul.innerHTML = '';
+  for (const r of results) {
+    const li = document.createElement('li');
+    li.classList.toggle('fail', !r.allOk);
+    li.classList.toggle('pass', r.allOk);
+    const head = document.createElement('div');
+    head.innerHTML = `<span class="${r.allOk ? 'ok' : 'bad'}">${r.allOk ? '✓' : '✗'}</span> ${r.name}`;
+    li.appendChild(head);
+    for (const c of r.checks) {
+      if (c.ok) continue;
+      const row = document.createElement('div');
+      row.className = 'check';
+      row.textContent = `  ${c.label}: got ${JSON.stringify(c.got)}, want ${JSON.stringify(c.want)}`;
+      li.appendChild(row);
+    }
+    ul.appendChild(li);
+  }
+}
+document.getElementById('run').addEventListener('click', render);
+render();
+</script>
+</body>
+</html>
