@@ -743,121 +743,193 @@
       return;
     }
 
-    const days = dates.map(d => ({ date: d, events: Store.eventsForDate(d) }));
+    // Build a flat list of {date, status} for every tracked day,
+    // oldest → newest.
+    const allDays = dates.map(d => ({
+      date: d,
+      status: R.classifyDay(Store.eventsForDate(d)).status,
+    }));
+    const today = Store.todayKey();
 
-    // Compute segmentations
-    const allAgg = R.aggregate(days);
-    const streaks = R.computeStreaks(days.map(x => R.classifyDay(x.events).status));
-
-    // Cumulative card
-    root.appendChild(buildCumulativeCard(allAgg, streaks, days));
-
-    // Last 7 days
-    const last7 = days.slice(-7);
-    if (last7.length > 0) {
-      root.appendChild(buildSegmentCard('LAST 7 DAYS', R.aggregate(last7), R.computeStreaks(last7.map(x => R.classifyDay(x.events).status)), last7.length));
+    // 7-day card (only if we have at least one day)
+    if (allDays.length > 0) {
+      root.appendChild(buildInsightsCard('Last 7 days', allDays.slice(-7), today));
     }
-
-    // Last 30 days
-    const last30 = days.slice(-30);
-    if (last30.length > 0) {
-      root.appendChild(buildSegmentCard('LAST 30 DAYS', R.aggregate(last30), R.computeStreaks(last30.map(x => R.classifyDay(x.events).status)), last30.length));
+    // 30-day card
+    if (allDays.length > 0) {
+      root.appendChild(buildInsightsCard('Last 30 days', allDays.slice(-30), today));
+    }
+    // All-time card
+    if (allDays.length > 0) {
+      root.appendChild(buildInsightsCard('All time', allDays, today));
     }
   }
 
-  function buildSegmentCard(title, agg, streaks, dayCount) {
-    const seg = el('div', { class: 'insights-segment' });
-    seg.appendChild(el('div', { class: 'insights-segment__title' }, title));
+  function buildInsightsCard(title, days, today) {
+    const counts = countStatuses(days);
+    const total = days.length;
+    const dominant = dominantStatus(counts);
+    const completedDays = days.filter(d => d.status !== R.STATUS.NO_DATA).length;
+    const agg = R.aggregate(days.map(d => ({
+      date: d.date, events: Store.eventsForDate(d.date),
+    })));
+    const streaks = R.computeStreaks(days.map(d => d.status));
 
-    const completed = agg.completed;
-    const avgWorn = completed > 0 ? Math.round(agg.totalWornMinutes / completed) : 0;
-    const avgOut = completed > 0 ? Math.round(agg.totalRemovalMinutes / completed) : 0;
+    const card = el('div', { class: 'insights-card' });
 
-    const stats = el('div', { class: 'insights-stats' });
-    stats.appendChild(buildStat2('Tracked Days', String(dayCount)));
-    stats.appendChild(buildStat2('Perfect', String(agg.perfect), 'green'));
-    stats.appendChild(buildStat2('Near Perfect', String(agg.nearPerfect), 'green'));
-    stats.appendChild(buildStat2('Imperfect', String(agg.imperfect), 'imperfect'));
-    stats.appendChild(buildStat2('Failure', String(agg.failure), 'red'));
-    stats.appendChild(buildStat2('Avg Worn', completed ? R.formatMinutesShort(avgWorn) : '—'));
-    stats.appendChild(buildStat2('Avg Out', completed ? `${avgOut}m` : '—'));
-    stats.appendChild(buildStat2('Longest Removal', agg.longestRemoval ? `${agg.longestRemoval}m` : '—'));
-    stats.appendChild(buildStat2('Total Events', String(agg.totalEvents)));
-    stats.appendChild(buildStat2('Total Breaches', String(agg.totalBreaches)));
-    stats.appendChild(buildStat2('Total Excess', `${agg.totalExcess}m`));
-    seg.appendChild(stats);
+    // Header
+    const head = el('div', { class: 'insights-card__head' });
+    head.appendChild(el('div', { class: 'insights-card__title' }, title));
+    head.appendChild(el('div', { class: 'insights-card__hint' },
+      `${total} day${total === 1 ? '' : 's'}`));
+    card.appendChild(head);
 
-    // Distribution bar
-    const total = agg.perfect + agg.nearPerfect + agg.imperfect + agg.failure;
-    if (total > 0) {
-      const bar = el('div', { class: 'distribution-bar' });
-      bar.appendChild(el('div', { class: 'distribution-bar__seg distribution-bar__seg--perfect',
-        style: `flex:${agg.perfect}` }));
-      bar.appendChild(el('div', { class: 'distribution-bar__seg distribution-bar__seg--near',
-        style: `flex:${agg.nearPerfect}` }));
-      bar.appendChild(el('div', { class: 'distribution-bar__seg distribution-bar__seg--imperfect',
-        style: `flex:${agg.imperfect}` }));
-      bar.appendChild(el('div', { class: 'distribution-bar__seg distribution-bar__seg--failure',
-        style: `flex:${agg.failure}` }));
-      seg.appendChild(bar);
+    // Hero: big status count + label
+    card.appendChild(buildInsightsHero(dominant, heroLabelForRange(title, dominant, counts, total)));
 
-      seg.appendChild(el('div', { class: 'distribution-legend' }, [
-        legendItem('perfect', 'Perfect'),
-        legendItem('near', 'Near Perfect'),
-        legendItem('imperfect', 'Imperfect'),
-        legendItem('failure', 'Failure'),
-      ]));
+    // Stacked bar
+    card.appendChild(buildInsightsBar(counts, total));
+
+    // Legend
+    card.appendChild(buildInsightsLegend(counts));
+
+    // Dot grid for smaller ranges only (≤ 35 dots)
+    if (days.length <= 35) {
+      card.appendChild(buildInsightsDots(days, today));
     }
 
-    // Streaks
-    seg.appendChild(buildStreakCard('Perfect Streak', streaks.currentPerfect, streaks.longestPerfect));
-    seg.appendChild(buildStreakCard('Non-Failure Streak', streaks.currentNonFailure, streaks.longestNonFailure));
+    // Streak
+    card.appendChild(buildInsightsStreak(streaks));
 
-    return seg;
-  }
+    // Averages + totals only on the all-time card to avoid clutter
+    if (title === 'All time' && completedDays > 0) {
+      const avgWorn = Math.round(agg.totalWornMinutes / completedDays);
+      const avgOut = Math.round(agg.totalRemovalMinutes / completedDays);
+      card.appendChild(buildInsightsAverages(agg, completedDays, avgWorn, avgOut));
+    }
 
-  function buildCumulativeCard(agg, streaks, days) {
-    const card = el('div', { class: 'insights-segment' });
-    card.appendChild(el('div', { class: 'insights-segment__title' }, 'ALL TIME'));
-
-    const stats = el('div', { class: 'insights-stats' });
-    stats.appendChild(buildStat2('Tracked Days', String(days.length)));
-    stats.appendChild(buildStat2('Perfect', String(agg.perfect), 'green'));
-    stats.appendChild(buildStat2('Near Perfect', String(agg.nearPerfect), 'green'));
-    stats.appendChild(buildStat2('Imperfect', String(agg.imperfect), 'imperfect'));
-    stats.appendChild(buildStat2('Failure', String(agg.failure), 'red'));
-    stats.appendChild(buildStat2('No Data', String(agg.noData)));
-    stats.appendChild(buildStat2('Avg Removal', agg.averageRemovalDuration ? `${Math.round(agg.averageRemovalDuration)}m` : '—'));
-    stats.appendChild(buildStat2('Green Breaches', String(agg.greenBreachCount)));
-    stats.appendChild(buildStat2('Amber', String(agg.amberCount), agg.amberCount > 0 ? 'red' : null));
-    stats.appendChild(buildStat2('Red', String(agg.redCount + agg.extendedCount), (agg.redCount + agg.extendedCount) > 0 ? 'red' : null));
-    card.appendChild(stats);
-
-    card.appendChild(buildStreakCard('Perfect Streak', streaks.currentPerfect, streaks.longestPerfect, 'green'));
-    card.appendChild(buildStreakCard('Non-Failure Streak', streaks.currentNonFailure, streaks.longestNonFailure));
     return card;
   }
 
-  function buildStat2(label, value, tone) {
-    const cls = 'insights-stat__value' + (tone ? ' insights-stat__value--' + tone : '');
-    return el('div', { class: 'insights-stat' }, [
-      el('div', { class: 'insights-stat__label' }, label),
-      el('div', { class: cls }, value),
+  function countStatuses(days) {
+    const c = { PERFECT: 0, NEAR_PERFECT: 0, IMPERFECT: 0, FAILURE: 0, NO_DATA: 0 };
+    for (const d of days) c[d.status] = (c[d.status] || 0) + 1;
+    return c;
+  }
+  function dominantStatus(counts) {
+    const order = ['PERFECT', 'NEAR_PERFECT', 'IMPERFECT', 'FAILURE'];
+    let best = { key: 'NO_DATA', count: 0 };
+    for (const k of order) {
+      if (counts[k] > best.count) best = { key: k, count: counts[k] };
+    }
+    return best;
+  }
+  function dominantToneClass(key) {
+    return ({
+      PERFECT: '',
+      NEAR_PERFECT: 'insights-hero__big--near',
+      IMPERFECT: 'insights-hero__big--imperfect',
+      FAILURE: 'insights-hero__big--failure',
+      NO_DATA: 'insights-hero__big--neutral',
+    })[key] || '';
+  }
+  function heroLabelForRange(title, dominant, counts, total) {
+    if (dominant.key === 'NO_DATA') {
+      return el('div', null, [el('strong', null, 'No data'), ' — log a removal to begin.']);
+    }
+    const words = {
+      PERFECT: 'Perfect days',
+      NEAR_PERFECT: 'Near Perfect days',
+      IMPERFECT: 'Imperfect days',
+      FAILURE: 'Failure days',
+    }[dominant.key];
+    const extras = [];
+    if (dominant.key === 'PERFECT' && counts.NEAR_PERFECT > 0) {
+      extras.push(`${counts.NEAR_PERFECT} Near Perfect`);
+    }
+    if (counts.FAILURE > 0) {
+      extras.push(`${counts.FAILURE} Failure`);
+    }
+    const suffix = extras.length ? ` (also ${extras.join(', ')})` : '';
+    return el('div', null, [
+      el('strong', null, words),
+      ` of ${total} days tracked${suffix}`,
     ]);
   }
-  function legendItem(key, label) {
-    return el('span', null, [
-      el('span', { class: 'distribution-legend__swatch distribution-bar__seg--' + key }),
-      label,
-    ]);
+  function buildInsightsHero(dominant, label) {
+    const wrap = el('div', { class: 'insights-hero' });
+    const big = el('div', { class: 'insights-hero__big ' + dominantToneClass(dominant.key) },
+      String(dominant.count));
+    big.dataset.status = dominant.key;
+    wrap.appendChild(big);
+    wrap.appendChild(el('div', { class: 'insights-hero__label' }, label));
+    return wrap;
   }
-  function buildStreakCard(label, current, longest, tone) {
-    return el('div', { class: 'streak-card' }, [
-      el('div', null, [
-        el('div', { class: 'streak-card__label' }, label),
-        el('div', { class: 'streak-card__value' + (tone ? ' streak-card__value--' + tone : '') }, `${current} current`),
-      ]),
-      el('div', { class: 'streak-card__value' }, `${longest} longest`),
+  function buildInsightsBar(counts, total) {
+    const bar = el('div', { class: 'insights-bar' });
+    if (total === 0) return bar;
+    const flexFor = (n) => n === 0 ? 'flex:0.0001' : `flex:${n}`;
+    bar.appendChild(el('div', { class: 'insights-bar__seg insights-bar__seg--perfect', style: flexFor(counts.PERFECT) }));
+    bar.appendChild(el('div', { class: 'insights-bar__seg insights-bar__seg--near', style: flexFor(counts.NEAR_PERFECT) }));
+    bar.appendChild(el('div', { class: 'insights-bar__seg insights-bar__seg--imperfect', style: flexFor(counts.IMPERFECT) }));
+    bar.appendChild(el('div', { class: 'insights-bar__seg insights-bar__seg--failure', style: flexFor(counts.FAILURE) }));
+    return bar;
+  }
+  function buildInsightsLegend(counts) {
+    const wrap = el('div', { class: 'insights-legend' });
+    const items = [
+      ['perfect', 'Perfect', counts.PERFECT],
+      ['near', 'Near Perfect', counts.NEAR_PERFECT],
+      ['imperfect', 'Imperfect', counts.IMPERFECT],
+      ['failure', 'Failure', counts.FAILURE],
+    ];
+    for (const [key, label, n] of items) {
+      wrap.appendChild(el('span', { class: 'insights-legend__item' }, [
+        el('span', { class: 'insights-legend__swatch insights-bar__seg--' + key }),
+        el('span', null, label),
+        el('span', { class: 'insights-legend__count' }, String(n)),
+      ]));
+    }
+    return wrap;
+  }
+  function buildInsightsDots(days, today) {
+    const grid = el('div', { class: 'insights-dots' });
+    for (const d of days) {
+      const dot = el('div', { class: 'insights-dot' });
+      dot.dataset.status = d.status;
+      if (d.date === today) dot.dataset.today = 'true';
+      grid.appendChild(dot);
+    }
+    return grid;
+  }
+  function buildInsightsStreak(streaks) {
+    const wrap = el('div', { class: 'insights-streak' });
+    wrap.appendChild(el('div', { class: 'insights-streak__icon' }, '🔥'));
+    const main = el('div', { class: 'insights-streak__main' });
+    const numCls = streaks.currentPerfect > 0
+      ? 'insights-streak__num'
+      : 'insights-streak__num insights-streak__num--neutral';
+    main.appendChild(el('span', { class: numCls }, String(streaks.currentPerfect)));
+    main.appendChild(el('span', { class: 'insights-streak__label' },
+      streaks.currentPerfect === 1 ? 'day Perfect streak' : 'day Perfect streak'));
+    wrap.appendChild(main);
+    wrap.appendChild(el('div', { class: 'insights-streak__best' }, `best ${streaks.longestPerfect}`));
+    return wrap;
+  }
+  function buildInsightsAverages(agg, completedDays, avgWorn, avgOut) {
+    const wrap = el('div', { class: 'insights-averages', style: 'margin-top: 18px;' });
+    wrap.appendChild(avgCell('Avg worn', R.formatMinutesShort(avgWorn)));
+    wrap.appendChild(avgCell('Avg out', `${avgOut}m`));
+    wrap.appendChild(avgCell('Avg removals', completedDays > 0
+      ? (agg.totalEvents / completedDays).toFixed(1)
+      : '—'));
+    wrap.appendChild(avgCell('Longest removal', agg.longestRemoval ? `${agg.longestRemoval}m` : '—'));
+    return wrap;
+  }
+  function avgCell(label, value) {
+    return el('div', { class: 'insights-avg' }, [
+      el('div', { class: 'insights-avg__value' }, value),
+      el('div', { class: 'insights-avg__label' }, label),
     ]);
   }
 

@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2026-09-22
+
+### Changed
+
+- **Insights UI redesigned.** The previous layout had two dense
+  cards (10+ stat tiles each + a tiny distribution bar + two
+  streak rows) which was hard to scan. The new design centres
+  three visual primitives:
+    1. **Big primary number** — the count of the dominant status
+       in the range, with a contextual label and "also N
+       Near / Failure" addendum.
+    2. **Stacked horizontal bar** — full-width, with the four
+       status colours and a clearly numbered legend below.
+    3. **Dot grid** — one circle per day, colour-coded by status,
+       oldest left → newest right, today highlighted with a
+       ring. Hidden when the range exceeds 35 days to avoid a
+       messy grid.
+- **Streak prominent.** Single big number with a flame icon and
+  "best N" caption. Replaces the previous two streak cards.
+- **Averages grid** at the bottom of the All-time card shows
+  Avg Worn / Avg Out / Avg Removals / Longest Removal — the four
+  numbers most worth knowing at a glance.
+
+### Notes
+
+- Range cards are unchanged in count: Last 7 days / Last 30 days
+  / All time. Each card now has identical structure so the eye
+  can compare them directly.
+- 21 new tests for the redesigned Insights.
+- Total tests: **220 passing**.
+
 ## [1.4.0] - 2026-09-22
 
 ### Added
