@@ -164,6 +164,12 @@
     if (screen === 'settings') renderSettings();
     if (screen === 'day') renderDay();
 
+    // The global tray pill is meaningless (and confusing) on the
+    // day-detail screen, since the day may belong to a different tray
+    // than the user's current one.
+    const pill = $('#trayPill');
+    if (pill) pill.hidden = (screen === 'day');
+
     // Scroll to top on screen change.
     try { window.scrollTo({ top: 0, behavior: 'instant' }); } catch (e) { /* jsdom */ }
   }
@@ -455,8 +461,29 @@
     const events = Store.eventsForDate(dayKey);
     const summary = R.dailySummary(events);
 
+    // Determine which tray(s) this day's events were logged under.
+    // If all events share the same tray, show it. If mixed (e.g., the
+    // user backdated some events after switching trays), say "Mixed".
+    const trayCounts = {};
+    for (const e of events) {
+      const t = e.tray;
+      trayCounts[t] = (trayCounts[t] || 0) + 1;
+    }
+    const trayKeys = Object.keys(trayCounts);
+    let trayLabel = null;
+    if (trayKeys.length === 1) trayLabel = `Tray ${trayKeys[0]}`;
+    else if (trayKeys.length > 1) trayLabel = `Tray ${trayKeys.sort((a, b) => a - b).join(' + ')}`;
+    const isPastTray = trayKeys.length === 1
+      && Number(trayKeys[0]) !== Store.state.settings.currentTray;
+
     const head = el('div', { class: 'day-header' }, [
-      el('div', { class: 'day-header__date' }, formatDayLong(dayKey)),
+      el('div', { class: 'day-header__top' }, [
+        el('div', { class: 'day-header__date' }, formatDayLong(dayKey)),
+        trayLabel ? el('span', {
+          class: 'day-header__tray',
+          dataset: { state: isPastTray ? 'past' : 'current' },
+        }, trayLabel) : null,
+      ]),
       el('div', { class: 'day-header__status', dataset: { status: summary.status } },
         badgeText(summary.status)),
       summary.reason ? el('div', { class: 'day-header__reason' }, summary.reason) : null,

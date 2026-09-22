@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.1] - 2026-09-22
+
+### Fixed
+
+- **Day-detail header now shows the day's tray, not the current
+  tray.** Previously, opening 18 Sept in History (a day logged while
+  on Tray 5) showed the global "TRAY 6 OF 14" header pill, which was
+  misleading. Now:
+    - The day-detail screen hides the global tray pill entirely.
+    - The day-detail card displays a tray badge ("Tray 5",
+      "Tray 5 + 6", etc.) derived from the events on that day.
+    - If the day's tray differs from the current tray, the badge
+      uses a muted "past" style so the difference is obvious.
+    - If a day has events from multiple trays (e.g. the user
+      backdated some events after switching trays), the badge shows
+      "Tray 5 + 6" (sorted).
+- 7 new tests for day-detail tray badge behaviour.
+
 ## [1.2.0] - 2026-09-22
 
 ### Added
