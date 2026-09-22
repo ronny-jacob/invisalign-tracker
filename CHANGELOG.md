@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.1] - 2026-09-22
+
+### Changed
+
+- **Personal Gate is now opt-in.** It was originally built for the
+  author's specific orthodontic requirement (two days before
+  Tray 6 had to be Perfect). New users should never see this
+  feature unless they actively enable it.
+    - **Default `gateEnabled: false`** for new users.
+    - **Removed the gate step from onboarding** (3 steps now,
+      down from 4). The progress dots reflect this.
+    - **Tray screen no longer shows the gate card** unless
+      `gateEnabled` is `true` AND both dates are set.
+    - **Settings → Personal Gate** group: a toggle to enable,
+      plus the two date fields and a customisable name. Off by
+      default; the user has to actively turn it on.
+    - **Existing users** who already had `gateEnabled: true` keep
+      their configuration (the migration doesn't touch it).
+
+### Notes
+
+- 16 new tests for the opt-in gate behaviour.
+- Total tests: **236 passing**.
+
 ## [1.5.0] - 2026-09-22
 
 ### Changed

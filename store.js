@@ -61,13 +61,16 @@
     // Auto-populated from the first event of each tray on load if empty.
     trayStarts: {},
     tray6Date: '2026-09-20',
-    tray6GateDate1: '2026-09-18',
-    tray6GateDate2: '2026-09-19',
-    // User-defined personal gate (formerly Tray 6 gate).
-    gateEnabled: true,
+    tray6GateDate1: '',
+    tray6GateDate2: '',
+    // Personal gate (opt-in, default off). The user — or their
+    // orthodontist — may define two dates that must both classify
+    // as Perfect before advancing to a new tray. Default off; new
+    // users won't see any gate UI unless they enable it in Settings.
+    gateEnabled: false,
     gateName: 'Personal Gate',
-    gateDate1: '2026-09-18',
-    gateDate2: '2026-09-19',
+    gateDate1: '',
+    gateDate2: '',
     notificationsEnabled: false,
     onboarded: false,        // first-run onboarding flag
     medicalDisclaimerAck: false,

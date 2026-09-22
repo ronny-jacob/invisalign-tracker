@@ -659,18 +659,19 @@
         'Edit individual tray start dates in Settings → Tray.'));
     }
 
-    // Tray 6 progression gate (user-defined)
-    const gate = buildTray6Gate(s);
-    root.appendChild(gate);
-
-    root.appendChild(el('div', { class: 'settings-note' },
-      'Tray progression rules and target dates are user-defined. ' +
-      'They do not replace advice from your orthodontist.'));
+    // Personal gate (opt-in). Hidden when disabled.
+    if (s.gateEnabled && s.gateDate1 && s.gateDate2) {
+      const gate = buildTray6Gate(s);
+      root.appendChild(gate);
+      root.appendChild(el('div', { class: 'settings-note' },
+        'Personal gate dates are user-defined. They do not replace advice from your orthodontist. ' +
+        'Enable or change them in Settings → Personal Gate.'));
+    }
   }
 
   function buildTray6Gate(s) {
     const card = el('div', { class: 'tray-gate' }, [
-      el('div', { class: 'tray-gate__title' }, 'Tray 6 Check'),
+      el('div', { class: 'tray-gate__title' }, s.gateName || 'Personal Gate'),
     ]);
 
     for (const d of [s.tray6GateDate1, s.tray6GateDate2]) {
@@ -982,11 +983,27 @@
       trayStartsRows,
       'When did you start each tray? Auto-inferred from the first logged event of each tray. Edit here if the inference is off (e.g. you switched trays but didn\'t log a removal that day).'));
 
-    // Progression gate group
-    root.appendChild(buildGroup('TRAY 6 PROGRESSION GATE', [
-      rowDate('Gate Day 1', s.tray6GateDate1, v => Store.updateSettings({ tray6GateDate1: v })),
-      rowDate('Gate Day 2', s.tray6GateDate2, v => Store.updateSettings({ tray6GateDate2: v })),
-    ], 'Both days must be Perfect. Near Perfect does not qualify. User-defined, not medical advice.'));
+    // Personal gate group (opt-in). Off by default; both dates are
+    // user-defined and not medical advice.
+    const gateToggleBtn = el('button', {
+      class: 'settings-row__action' + (s.gateEnabled ? '' : ' settings-row__action--danger'),
+      type: 'button',
+    }, s.gateEnabled ? 'On' : 'Off');
+    gateToggleBtn.addEventListener('click', () => {
+      Store.updateSettings({ gateEnabled: !s.gateEnabled });
+    });
+    const gateRows = [
+      el('div', { class: 'settings-row' }, [
+        el('span', { class: 'settings-row__label' }, 'Enable Personal Gate'),
+        gateToggleBtn,
+      ]),
+      rowDate('Gate Day 1', s.gateDate1 || '', v => Store.updateSettings({ gateDate1: v, tray6GateDate1: v })),
+      rowDate('Gate Day 2', s.gateDate2 || '', v => Store.updateSettings({ gateDate2: v, tray6GateDate2: v })),
+      rowStatic('Gate Name', s.gateName || 'Personal Gate'),
+    ];
+    root.appendChild(buildGroup('PERSONAL GATE', gateRows,
+      'Optional. Some users (or orthodontists) want to require two specific days to both classify as Perfect before advancing to a new tray. Off by default. ' +
+      'Both gate days must be Perfect; Near Perfect does not qualify.'));
 
     // Timezone group
     root.appendChild(buildGroup('TIMEZONE', [
@@ -1271,9 +1288,6 @@
       customTray2: 11,
       customTrayOnward: 10,
       timezone: 'Asia/Kolkata',
-      gateEnabled: false,
-      gateDate1: '',
-      gateDate2: '',
     },
   };
 
@@ -1301,6 +1315,9 @@
   }
 
   function renderOnboardingStep() {
+    // Three steps: welcome → tray plan → timezone. The personal
+    // gate (was step 3) is opt-in only and configured later in
+    // Settings.
     renderOnboardingProgress();
     const root = $('#onboardingContent');
     root.innerHTML = '';
@@ -1308,7 +1325,6 @@
     if (step === 0) root.appendChild(buildOnboardWelcome());
     else if (step === 1) root.appendChild(buildOnboardTrayPlan());
     else if (step === 2) root.appendChild(buildOnboardTimezone());
-    else if (step === 3) root.appendChild(buildOnboardGate());
   }
 
   function buildOnboardWelcome() {
@@ -1426,78 +1442,34 @@
 
     wrap.appendChild(buildNav({
       onBack: () => { onboard.step = 1; renderOnboardingStep(); },
-      nextLabel: 'Next',
+      nextLabel: 'Finish',
       onNext: () => {
         onboard.draft.timezone = $('#ob_tz').value;
-        onboard.step = 3;
-        renderOnboardingStep();
+        finishOnboarding();
       },
     }));
     return wrap;
   }
 
-  function buildOnboardGate() {
-    const wrap = el('div');
-    wrap.appendChild(el('div', { class: 'onboarding__eyebrow' }, 'OPTIONAL'));
-    wrap.appendChild(el('h1', { class: 'onboarding__title' }, 'Personal gate.'));
-    wrap.appendChild(el('p', { class: 'onboarding__body' },
-      'Pick two dates that must both classify as Perfect. The app surfaces this on the Tray screen. Skip if you don\'t have specific dates in mind.'));
+  function finishOnboarding() {
+    const d = onboard.draft;
+    let tray1Days = 11, tray2Days = 11, trayOnwardDays = 10;
+    if (d.patternPreset === '11/11/10') { tray1Days = 11; tray2Days = 11; trayOnwardDays = 10; }
+    else if (d.patternPreset === '10/10/10') { tray1Days = 10; tray2Days = 10; trayOnwardDays = 10; }
+    else if (d.patternPreset === '7/7/7')    { tray1Days = 7;  tray2Days = 7;  trayOnwardDays = 7; }
+    else { tray1Days = d.customTray1; tray2Days = d.customTray2; trayOnwardDays = d.customTrayOnward; }
 
-    const toggleRow = el('div', { class: 'onboarding__field' });
-    const chips = el('div', { class: 'onboarding__chips' });
-    const yes = el('button', { class: 'onboarding__chip' + (onboard.draft.gateEnabled ? ' onboarding__chip--active' : ''), type: 'button' }, 'Set a gate');
-    const no  = el('button', { class: 'onboarding__chip' + (!onboard.draft.gateEnabled ? ' onboarding__chip--active' : ''), type: 'button' }, 'Skip for now');
-    yes.addEventListener('click', () => { onboard.draft.gateEnabled = true; renderOnboardingStep(); });
-    no.addEventListener('click',  () => { onboard.draft.gateEnabled = false; renderOnboardingStep(); });
-    chips.appendChild(yes); chips.appendChild(no);
-    toggleRow.appendChild(chips);
-    wrap.appendChild(toggleRow);
-
-    if (onboard.draft.gateEnabled) {
-      const f1 = el('div', { class: 'onboarding__field' });
-      f1.appendChild(el('label', { class: 'onboarding__label' }, 'Date 1'));
-      f1.appendChild(el('input', { class: 'onboarding__input', type: 'date', value: onboard.draft.gateDate1, id: 'ob_g1' }));
-      wrap.appendChild(f1);
-
-      const f2 = el('div', { class: 'onboarding__field' });
-      f2.appendChild(el('label', { class: 'onboarding__label' }, 'Date 2'));
-      f2.appendChild(el('input', { class: 'onboarding__input', type: 'date', value: onboard.draft.gateDate2, id: 'ob_g2' }));
-      wrap.appendChild(f2);
-    }
-
-    wrap.appendChild(buildNav({
-      onBack: () => onboard.step = 2,
-      nextLabel: 'Finish',
-      onNext: () => {
-        // Persist
-        const d = onboard.draft;
-        let tray1Days = 11, tray2Days = 11, trayOnwardDays = 10;
-        if (d.patternPreset === '11/11/10') { tray1Days = 11; tray2Days = 11; trayOnwardDays = 10; }
-        else if (d.patternPreset === '10/10/10') { tray1Days = 10; tray2Days = 10; trayOnwardDays = 10; }
-        else if (d.patternPreset === '7/7/7')    { tray1Days = 7;  tray2Days = 7;  trayOnwardDays = 7; }
-        else { tray1Days = d.customTray1; tray2Days = d.customTray2; trayOnwardDays = d.customTrayOnward; }
-
-        const patch = {
-          totalTrays: d.totalTrays,
-          currentTray: d.currentTray,
-          tray1Days, tray2Days, trayOnwardDays,
-          timezone: d.timezone,
-          gateEnabled: d.gateEnabled,
-          gateDate1: d.gateDate1 || d.gateDate1,
-          gateDate2: d.gateDate2 || d.gateDate2,
-          // Compatibility with legacy tray6* fields
-          tray6Date: d.gateDate1 || Store.state.settings.tray6Date,
-          tray6GateDate1: d.gateDate1 || Store.state.settings.tray6GateDate1,
-          tray6GateDate2: d.gateDate2 || Store.state.settings.tray6GateDate2,
-          onboarded: true,
-          medicalDisclaimerAck: true,
-        };
-        Store.updateSettings(patch);
-        endOnboarding();
-        go('today');
-      },
-    }));
-    return wrap;
+    Store.updateSettings({
+      totalTrays: d.totalTrays,
+      currentTray: d.currentTray,
+      tray1Days, tray2Days, trayOnwardDays,
+      timezone: d.timezone,
+      // gateEnabled stays at its default (false) — opt-in only via Settings.
+      onboarded: true,
+      medicalDisclaimerAck: true,
+    });
+    endOnboarding();
+    go('today');
   }
 
   function buildNav({ nextLabel, onBack, onNext }) {
