@@ -67,6 +67,50 @@
     return date.toLocaleDateString(undefined, { weekday: 'short' });
   }
 
+  // -- Time formatting --
+  // Uses the user's configured timezone, but the device's locale for
+  // 12h vs 24h preference.
+
+  function _tzFormatter() {
+    const tz = (Store.state.settings && Store.state.settings.timezone) || undefined;
+    return new Intl.DateTimeFormat(undefined, {
+      timeZone: tz, hour: 'numeric', minute: '2-digit', hour12: undefined,
+    });
+  }
+
+  function formatClock(ts) {
+    if (!ts) return '';
+    try {
+      return _tzFormatter().format(new Date(ts));
+    } catch (e) {
+      return new Date(ts).toLocaleTimeString();
+    }
+  }
+
+  function formatRange(startTs, endTs) {
+    if (!startTs && !endTs) return '';
+    const s = formatClock(startTs);
+    const e = formatClock(endTs);
+    if (s && e) return `${s}–${e}`;
+    return s || e;
+  }
+
+  function formatRelative(ts, now) {
+    if (!ts) return '';
+    const t = (typeof now === 'number') ? now : Date.now();
+    const diff = t - ts;
+    if (diff < 0) return 'just now';
+    const sec = Math.floor(diff / 1000);
+    if (sec < 45) return 'just now';
+    const min = Math.floor(sec / 60);
+    if (min < 60) return `${min}m ago`;
+    const hr = Math.floor(min / 60);
+    if (hr < 24) return `${hr}h ago`;
+    const day = Math.floor(hr / 24);
+    if (day < 7) return `${day}d ago`;
+    return formatClock(ts);
+  }
+
   function showToast(message, actionLabel, onAction) {
     const t = $('#toast');
     t.innerHTML = '';
@@ -144,7 +188,15 @@
     grid.innerHTML = '';
     grid.appendChild(buildStat('WORN', R.formatMinutesShort(summary.worn)));
     grid.appendChild(buildStat('OUT', `${summary.total}m`));
-    grid.appendChild(buildStat('REMOVALS', String(summary.count)));
+    const lastEventTs = events.length
+      ? events.reduce((a, b) => (b.createdTs > a.createdTs ? b : a)).createdTs
+      : null;
+    grid.appendChild(buildStat(
+      'REMOVALS', String(summary.count),
+      lastEventTs
+        ? [el('span', { class: 'today-grid__hint' }, `last at ${formatClock(lastEventTs)}`)]
+        : null,
+    ));
 
     // Forecast card
     const fc = $('#forecastCard');
@@ -214,10 +266,11 @@
     }
   }
 
-  function buildStat(label, value) {
+  function buildStat(label, value, extras) {
     return el('div', { class: 'today-grid__cell' }, [
       el('div', { class: 'today-grid__label' }, label),
       el('div', { class: 'today-grid__value' }, value),
+      ...(extras || []),
     ]);
   }
 
@@ -344,14 +397,19 @@
     for (const d of dates) {
       const events = Store.eventsForDate(d);
       const summary = R.dailySummary(events);
+      const last = events.length
+        ? events.reduce((a, b) => (b.createdTs > a.createdTs ? b : a))
+        : null;
+      const subParts = [
+        `${summary.count} ${pluralize(summary.count, 'removal', 'removals')}`,
+        ' · ',
+        `${R.formatMinutesShort(summary.worn)} worn`,
+      ];
+      if (last) subParts.push(' · ', `last at ${formatClock(last.createdTs)}`);
       const row = el('button', { class: 'history-row', type: 'button' }, [
         el('div', null, [
           el('div', { class: 'history-row__date' }, formatDayLong(d)),
-          el('div', { class: 'history-row__sub' }, [
-            `${summary.count} ${pluralize(summary.count, 'removal', 'removals')}`,
-            ' · ',
-            `${R.formatMinutesShort(summary.worn)} worn`,
-          ]),
+          el('div', { class: 'history-row__sub' }, subParts),
         ]),
         el('div', { class: 'history-row__badge', dataset: { status: summary.status } }, badgeText(summary.status)),
         el('div', { class: 'history-row__chev', 'aria-hidden': 'true' }, '›'),
@@ -439,11 +497,20 @@
     ]);
     events.forEach((e, i) => {
       const zone = R.zoneOf(e.duration);
+      const range = formatRange(e.startTs, e.endTs);
+      const logged = formatRelative(e.createdTs);
+      const edited = e.editedTs ? ` · edited ${formatRelative(e.editedTs)}` : '';
+      const sub = range
+        ? `${range} · logged ${logged}${edited}`
+        : `logged ${logged}${edited}`;
       const row = el('div', { class: 'event-row' }, [
         el('span', { class: 'event-row__num' }, String(i + 1)),
-        el('span', { class: 'event-row__zone', dataset: { zone } }, [
-          el('span', { class: 'event-row__dot' }),
-          zoneLabel(zone),
+        el('div', { class: 'event-row__main' }, [
+          el('span', { class: 'event-row__zone', dataset: { zone } }, [
+            el('span', { class: 'event-row__dot' }),
+            zoneLabel(zone),
+          ]),
+          el('span', { class: 'event-row__sub' }, sub),
         ]),
         el('span', { class: 'event-row__dur' }, `${e.duration} min`),
         el('button', {
@@ -939,7 +1006,7 @@
       try {
         const ev = Store.addRemoval(Store.todayKey(), dur);
         closeSheet($('#addSheet'));
-        showToast(`Added ${ev.duration} min`, 'Undo', () => {
+        showToast(`Added ${ev.duration} min · ${formatRelative(ev.createdTs)}`, 'Undo', () => {
           Store.undoLastRemoval(Store.todayKey());
           showToast('Undone.');
         });
@@ -971,9 +1038,9 @@
         return;
       }
       try {
-        Store.editRemoval(id, dur);
+        const updated = Store.editRemoval(id, dur);
         closeSheet(sheet);
-        showToast('Updated.');
+        showToast(`Updated · ${formatRelative(updated.editedTs)}`);
       } catch (err) {
         errEl.textContent = err.message;
         errEl.hidden = false;

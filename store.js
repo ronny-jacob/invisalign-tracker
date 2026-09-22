@@ -140,21 +140,28 @@
     return 'ev_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
   }
 
-  function addRemoval(date, duration) {
+  function addRemoval(date, duration, opts) {
     duration = Math.floor(duration);
     if (!Number.isFinite(duration) || duration <= 0) {
       throw new Error('Invalid input. Enter a whole number of minutes.');
     }
+    opts = opts || {};
     const existing = eventsForDate(date);
+    const now = Date.now();
+    // Manual entry has no real start/end, so we approximate the window
+    // as "the most recent N minutes ending now." A future timer feature
+    // can overwrite these with the actual recorded timestamps.
+    const endTs = opts.endTs != null ? opts.endTs : now;
+    const startTs = opts.startTs != null ? opts.startTs : (endTs - duration * 60_000);
     const event = {
       id: newId(),
       date,
       tray: state.settings.currentTray,
       eventNumber: existing.length + 1,
       duration,
-      startTs: null,
-      endTs: null,
-      createdTs: Date.now(),
+      startTs,
+      endTs,
+      createdTs: now,
       editedTs: null,
       editHistory: [],
     };
