@@ -57,6 +57,9 @@
     tray1Days: 11,
     tray2Days: 11,
     trayOnwardDays: 10,
+    // Map of tray number → start date (YYYY-MM-DD).
+    // Auto-populated from the first event of each tray on load if empty.
+    trayStarts: {},
     tray6Date: '2026-09-20',
     tray6GateDate1: '2026-09-18',
     tray6GateDate2: '2026-09-19',
@@ -80,11 +83,42 @@
       if (!parsed || typeof parsed !== 'object') return emptyState();
       parsed.events = Array.isArray(parsed.events) ? parsed.events : [];
       parsed.settings = Object.assign(defaultSettings(), parsed.settings || {});
+      if (!parsed.settings.trayStarts || typeof parsed.settings.trayStarts !== 'object') {
+        parsed.settings.trayStarts = {};
+      }
+      // Backfill tray start dates from existing events if missing.
+      backfillTrayStarts(parsed);
       return parsed;
     } catch (err) {
       console.warn('Store: failed to load, starting fresh', err);
       return emptyState();
     }
+  }
+
+  // For every tray number that has events but no recorded start date,
+  // record the earliest event date as the inferred tray start. This is
+  // a best-guess: the first logged event of a tray ≈ the day it began.
+  function backfillTrayStarts(s) {
+    const starts = s.settings.trayStarts;
+    const byTray = {};
+    for (const e of s.events) {
+      const t = e.tray;
+      if (!byTray[t] || e.date < byTray[t]) byTray[t] = e.date;
+    }
+    let changed = false;
+    for (const t of Object.keys(byTray)) {
+      if (!starts[t]) {
+        starts[t] = byTray[t];
+        changed = true;
+      }
+    }
+    // Also: if currentTray has no recorded start, default to today so
+    // the day-counter is meaningful from the moment of upgrade.
+    if (!starts[String(s.settings.currentTray)]) {
+      starts[String(s.settings.currentTray)] = todayKey();
+      changed = true;
+    }
+    return changed;
   }
 
   function save(state) {
@@ -166,6 +200,11 @@
       editHistory: [],
     };
     state.events.push(event);
+    // If this is the first event of this tray, record its date as the
+    // tray start. Best-effort: user can correct in Settings.
+    if (!state.settings.trayStarts[String(event.tray)]) {
+      state.settings.trayStarts[String(event.tray)] = event.date;
+    }
     save(state);
     emit();
     return event;
@@ -211,14 +250,87 @@
 
   function updateSettings(patch) {
     state.settings = Object.assign({}, state.settings, patch || {});
+    // Note: we do NOT auto-set trayStarts[currentTray] = today here.
+    // That would clobber inferred dates. Instead:
+    //   - backfillTrayStarts() on load infers from earliest event per tray
+    //   - addRemoval() infers the start date from the first event of a tray
+    //   - setTrayStartDate() lets the user correct any inference manually
     save(state);
     emit();
+  }
+
+  function setTrayStartDate(tray, dateKey) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey || '')) {
+      throw new Error('Invalid date. Use YYYY-MM-DD.');
+    }
+    const t = String(tray);
+    state.settings.trayStarts = Object.assign({}, state.settings.trayStarts);
+    state.settings.trayStarts[t] = dateKey;
+    save(state);
+    emit();
+    return state.settings.trayStarts[t];
+  }
+
+  // Compute the schedule for a given tray.
+  // Returns { startDate, durationDays, daysElapsed, daysRemaining,
+  //   expectedSwitchDate, isOverdue, isComplete }.
+  function traySchedule(tray) {
+    const s = state.settings;
+    const startDate = (s.trayStarts && s.trayStarts[String(tray)]) || null;
+    const durationDays = trayScheduleDuration(tray);
+    if (!startDate) {
+      return {
+        startDate: null, durationDays, daysElapsed: 0, daysRemaining: durationDays,
+        expectedSwitchDate: null, isOverdue: false, isComplete: false,
+      };
+    }
+    const today = todayKey();
+    const daysElapsed = daysBetween(startDate, today);
+    const daysRemaining = Math.max(0, durationDays - daysElapsed);
+    const expectedSwitchDate = addDays(startDate, durationDays);
+    const isComplete = daysElapsed >= durationDays;
+    const isOverdue = daysElapsed > durationDays;
+    return { startDate, durationDays, daysElapsed, daysRemaining, expectedSwitchDate, isOverdue, isComplete };
+  }
+
+  function trayScheduleDuration(tray) {
+    const s = state.settings;
+    const t = Number(tray);
+    if (t === 1) return s.tray1Days;
+    if (t === 2) return s.tray2Days;
+    return s.trayOnwardDays;
+  }
+
+  function daysBetween(a, b) {
+    // a, b are YYYY-MM-DD; returns inclusive difference (today - start).
+    const [ay, am, ad] = a.split('-').map(Number);
+    const [by, bm, bd] = b.split('-').map(Number);
+    const da = new Date(ay, am - 1, ad).getTime();
+    const db = new Date(by, bm - 1, bd).getTime();
+    return Math.round((db - da) / 86_400_000);
+  }
+
+  function addDays(dateKey, n) {
+    const [y, m, d] = dateKey.split('-').map(Number);
+    const date = new Date(y, m - 1, d + n);
+    const yy = date.getFullYear();
+    const mm = String(date.getMonth() + 1).padStart(2, '0');
+    const dd = String(date.getDate()).padStart(2, '0');
+    return `${yy}-${mm}-${dd}`;
   }
 
   function clearAll() {
     state = emptyState();
     save(state);
     emit();
+  }
+
+  function trayStartsKnown() {
+    const starts = state.settings.trayStarts || {};
+    return Object.keys(starts)
+      .map(Number)
+      .filter(n => Number.isFinite(n))
+      .sort((a, b) => a - b);
   }
 
   function exportJSON() {
@@ -296,7 +408,8 @@
     todayKey,
     eventsForDate, allDatesSorted,
     addRemoval, undoLastRemoval, editRemoval, deleteRemoval,
-    updateSettings, clearAll,
+    updateSettings, setTrayStartDate, clearAll,
+    traySchedule, trayStartsKnown,
     exportJSON, exportCSV, importJSON,
     seedDemo,
     get state() { return state; },

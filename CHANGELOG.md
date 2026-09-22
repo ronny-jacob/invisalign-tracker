@@ -5,6 +5,45 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-09-22
+
+### Added
+
+- **Tray start-date tracking.** Each tray now has a recorded start
+  date, exposed as `settings.trayStarts: { '<tray>': 'YYYY-MM-DD' }`.
+  Three sources populate it:
+    1. **Backfill on load** — for every tray that already has events
+       but no recorded start date, infer the earliest event date as
+       the tray's start.
+    2. **Per-event inference** — the first event of a new tray auto-
+       records its date as the tray start.
+    3. **Manual correction** in Settings → Tray Start Dates.
+- **`Store.traySchedule(tray)`** returns
+  `{ startDate, durationDays, daysElapsed, daysRemaining,
+     expectedSwitchDate, isOverdue, isComplete }`.
+- **`Store.setTrayStartDate(tray, dateKey)`** with input validation.
+- **`Store.trayStartsKnown()`** returns the sorted list of trays with
+  recorded start dates.
+- **Tray screen** now shows
+    - "Day N of M" for the current tray
+    - "Started X · switch in N days" / "switch tomorrow" / "switch today"
+    - "Overdue by N days" with the original switch date
+    - Progress bar (filled proportionally)
+    - "Tray Schedule" list of every known tray with its start date
+      and day-of-N status.
+- **Settings → Tray Start Dates** group with a date picker per known
+  tray.
+- 16 new tests for tray tracking logic.
+
+### Notes
+
+- Updating `currentTray` no longer auto-records today as the start
+  date; the date is inferred from the first event of the new tray.
+  This avoids clobbering inferred dates when the user changes tray
+  before logging any events.
+- A future enhancement: auto-roll `currentTray` when
+  `daysElapsed >= durationDays`.
+
 ## [1.1.0] - 2026-09-22
 
 ### Added

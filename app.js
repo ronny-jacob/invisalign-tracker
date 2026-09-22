@@ -545,14 +545,76 @@
     const root = $('#trayContent');
     root.innerHTML = '';
 
-    root.appendChild(el('div', { class: 'tray-summary' }, [
+    const sched = Store.traySchedule(s.currentTray);
+
+    // Header card: big tray number + day-of-N progress
+    const summaryCard = el('div', { class: 'tray-summary' }, [
       el('div', { class: 'tray-summary__label' }, 'Current Tray'),
       el('div', { class: 'tray-summary__num' }, String(s.currentTray)),
       el('div', { class: 'tray-summary__total' }, `of ${s.totalTrays}`),
-      el('div', { class: 'tray-summary__meta' }, [
-        `Tray 1: ${s.tray1Days} days · Tray 2: ${s.tray2Days} days · Onward: ${s.trayOnwardDays} days`,
-      ]),
+    ]);
+    if (sched.startDate) {
+      const dayText = sched.isComplete
+        ? `Day ${sched.durationDays} of ${sched.durationDays} · ready to switch`
+        : sched.isOverdue
+          ? `Day ${sched.daysElapsed} of ${sched.durationDays} · overdue by ${sched.daysElapsed - sched.durationDays} day${sched.daysElapsed - sched.durationDays === 1 ? '' : 's'}`
+          : `Day ${Math.max(1, sched.daysElapsed + 1)} of ${sched.durationDays}`;
+      summaryCard.appendChild(el('div', { class: 'tray-summary__day', 'data-state': sched.isOverdue ? 'overdue' : (sched.isComplete ? 'complete' : 'active') }, dayText));
+
+      if (sched.isComplete) {
+        summaryCard.appendChild(el('div', { class: 'tray-summary__hint', style: 'color: var(--amber);' },
+          'Tray duration reached. Bump the current tray in Settings when you switch.'));
+      } else if (sched.isOverdue) {
+        summaryCard.appendChild(el('div', { class: 'tray-summary__hint' },
+          `Was due to switch on ${formatDayShort(sched.expectedSwitchDate)}.`));
+      } else {
+        summaryCard.appendChild(el('div', { class: 'tray-summary__hint' }, [
+          `Started ${formatDayShort(sched.startDate)}`,
+          sched.daysRemaining === 1 ? ' · switch tomorrow' :
+            sched.daysRemaining === 0 ? ' · switch today' :
+              ` · switch in ${sched.daysRemaining} days`,
+        ]));
+      }
+
+      // Progress bar
+      const pct = Math.min(100, Math.round((sched.daysElapsed / sched.durationDays) * 100));
+      const bar = el('div', { class: 'tray-progress' }, [
+        el('div', { class: 'tray-progress__fill', style: `width:${pct}%`, 'data-state': sched.isOverdue ? 'overdue' : 'active' }),
+      ]);
+      summaryCard.appendChild(bar);
+    } else {
+      summaryCard.appendChild(el('div', { class: 'tray-summary__meta' },
+        'No start date recorded for this tray.'));
+    }
+    summaryCard.appendChild(el('div', { class: 'tray-summary__meta' }, [
+      `Tray 1: ${s.tray1Days} days · Tray 2: ${s.tray2Days} days · Onward: ${s.trayOnwardDays} days`,
     ]));
+    root.appendChild(summaryCard);
+
+    // Schedule editor hint
+    const knownTrays = Store.trayStartsKnown();
+    if (knownTrays.length > 0) {
+      const list = el('div', { class: 'tray-history' }, [
+        el('div', { class: 'tray-history__title' }, 'Tray Schedule'),
+      ]);
+      for (const t of knownTrays) {
+        const ts = Store.traySchedule(t);
+        const row = el('div', { class: 'tray-history__row' }, [
+          el('span', { class: 'tray-history__num' }, `Tray ${t}`),
+          el('span', { class: 'tray-history__date' }, formatDayShort(ts.startDate)),
+          el('span', { class: 'tray-history__hint' },
+            t === s.currentTray
+              ? 'current'
+              : ts.isComplete
+                ? `done · ${ts.durationDays}d`
+                : `day ${ts.daysElapsed + 1}/${ts.durationDays}`),
+        ]);
+        list.appendChild(row);
+      }
+      root.appendChild(list);
+      root.appendChild(el('div', { class: 'settings-note' },
+        'Edit individual tray start dates in Settings → Tray.'));
+    }
 
     // Tray 6 progression gate (user-defined)
     const gate = buildTray6Gate(s);
@@ -784,6 +846,26 @@
       rowNumber('Onward Days', s.trayOnwardDays, v => Store.updateSettings({ trayOnwardDays: Number(v) || 10 })),
       rowDate('Intended Tray 6 Date', s.tray6Date, v => Store.updateSettings({ tray6Date: v })),
     ]));
+
+    // Tray start dates editor
+    const trayStartsRows = (Store.trayStartsKnown().length
+      ? Store.trayStartsKnown().map(t => {
+          const startDate = (s.trayStarts && s.trayStarts[String(t)]) || '';
+          const node = rowDate(`Tray ${t} Started`, startDate, v => {
+            try { Store.setTrayStartDate(t, v); }
+            catch (e) { showToast(e.message); }
+          });
+          node.dataset.tray = String(t);
+          return node;
+        })
+      : [el('div', { class: 'settings-row' }, [
+          el('span', { class: 'settings-row__label' }, 'No tray start dates recorded yet'),
+          el('span', { class: 'settings-row__value', style: 'font-weight:400;color:var(--fg-tertiary)' }, '—'),
+        ])]
+    );
+    root.appendChild(buildGroup('TRAY START DATES',
+      trayStartsRows,
+      'When did you start each tray? Auto-inferred from the first logged event of each tray. Edit here if the inference is off (e.g. you switched trays but didn\'t log a removal that day).'));
 
     // Progression gate group
     root.appendChild(buildGroup('TRAY 6 PROGRESSION GATE', [
