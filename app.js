@@ -163,12 +163,13 @@
     if (screen === 'insights') renderInsights();
     if (screen === 'settings') renderSettings();
     if (screen === 'day') renderDay();
+    if (screen === 'rules') renderRulesScreen();
 
     // The global tray pill is meaningless (and confusing) on the
     // day-detail screen, since the day may belong to a different tray
     // than the user's current one.
     const pill = $('#trayPill');
-    if (pill) pill.hidden = (screen === 'day');
+    if (pill) pill.hidden = (screen === 'day' || screen === 'rules');
 
     // Scroll to top on screen change.
     try { window.scrollTo({ top: 0, behavior: 'instant' }); } catch (e) { /* jsdom */ }
@@ -241,8 +242,12 @@
     if (summary.count === 0) {
       nr.dataset.tone = 'progress';
       nr.appendChild(el('div', { class: 'next-removal-card__head' }, 'NEXT REMOVAL'));
+      // Use the rules engine, not a hardcoded 60. For a target of
+      // Perfect on an empty day, the max safe single removal is 35
+      // (a green-zone breach; 36+ would be amber and disqualify Perfect).
+      const emptyMax = R.maxNextRemoval([], 'perfect');
       nr.appendChild(el('div', { class: 'next-removal-card__max' }, [
-        'MAX ', el('span', null, R.formatMinutesShort(60)),
+        'MAX ', el('span', null, String(emptyMax)),
         el('span', { class: 'next-removal-card__unit' }, ' MIN')
       ]));
       nr.appendChild(el('div', { class: 'next-removal-card__sub' }, 'Perfect is still possible.'));
@@ -927,6 +932,8 @@
     root.appendChild(buildGroup('ABOUT', [
       rowStatic('Rule Version', R.WORN_MINIMUM === 1320 ? 'v1.0.0 (22h minimum)' : 'v?'),
       rowStatic('Storage', 'Local (this device)'),
+      rowAction('How the rules work', 'View', () => openRulesScreen()),
+      rowAction('Re-run setup', 'Run', () => { Store.updateSettings({ onboarded: false }); startOnboarding(); }),
     ]));
 
     // Hidden file input for import
@@ -1017,6 +1024,356 @@
     const out = [];
     for (let i = min; i <= max; i++) out.push({ value: String(i), label: String(i) });
     return out;
+  }
+
+  /* ============================================================
+   * Onboarding (first-run)
+   * ============================================================ */
+
+  const onboard = {
+    step: 0,
+    draft: {
+      totalTrays: 14,
+      currentTray: 1,
+      patternPreset: '11/11/10',
+      customTray1: 11,
+      customTray2: 11,
+      customTrayOnward: 10,
+      timezone: 'Asia/Kolkata',
+      gateEnabled: false,
+      gateDate1: '',
+      gateDate2: '',
+    },
+  };
+
+  function startOnboarding() {
+    onboard.step = 0;
+    // Pre-fill draft with whatever the device thinks the timezone is.
+    try {
+      const guess = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      if (guess) onboard.draft.timezone = guess;
+    } catch (e) { /* keep default */ }
+    renderOnboardingStep();
+    const overlay = $('#onboarding');
+    overlay.hidden = false;
+  }
+
+  function endOnboarding() {
+    $('#onboarding').hidden = true;
+  }
+
+  function renderOnboardingProgress() {
+    const dots = $$('#onboardingProgress .onboarding__dot');
+    dots.forEach((d, i) => {
+      d.classList.toggle('onboarding__dot--active', i <= onboard.step);
+    });
+  }
+
+  function renderOnboardingStep() {
+    renderOnboardingProgress();
+    const root = $('#onboardingContent');
+    root.innerHTML = '';
+    const step = onboard.step;
+    if (step === 0) root.appendChild(buildOnboardWelcome());
+    else if (step === 1) root.appendChild(buildOnboardTrayPlan());
+    else if (step === 2) root.appendChild(buildOnboardTimezone());
+    else if (step === 3) root.appendChild(buildOnboardGate());
+  }
+
+  function buildOnboardWelcome() {
+    const wrap = el('div');
+    wrap.appendChild(el('div', { class: 'onboarding__eyebrow' }, 'WELCOME'));
+    wrap.appendChild(el('h1', { class: 'onboarding__title' },
+      'A calm way to track your Invisalign wear.'));
+    wrap.appendChild(el('p', { class: 'onboarding__body' },
+      'Log how many minutes your tray was out. The app does the math — daily status, what your next removal can be, and whether today can still be a Perfect day.'));
+    const ul = el('ul', { class: 'onboarding__list' });
+    ul.appendChild(el('li', null, 'No AI in the loop. Every status and forecast is calculated from a deterministic rules engine you can read in plain English.'));
+    ul.appendChild(el('li', null, 'Your data stays on this device. Export to JSON or CSV any time. Nothing is sent to a server.'));
+    ul.appendChild(el('li', null, 'This is a tracking tool, not medical advice. Confirm any clinical decisions with your orthodontist.'));
+    wrap.appendChild(ul);
+    wrap.appendChild(buildNav({ nextLabel: 'Get started', onNext: () => { onboard.step = 1; renderOnboardingStep(); } }));
+    return wrap;
+  }
+
+  function buildOnboardTrayPlan() {
+    const wrap = el('div');
+    wrap.appendChild(el('div', { class: 'onboarding__eyebrow' }, 'YOUR PLAN'));
+    wrap.appendChild(el('h1', { class: 'onboarding__title' }, 'Tell us your plan.'));
+    wrap.appendChild(el('p', { class: 'onboarding__body' },
+      'These are the only settings you\'ll need to fill in. You can change them later in Settings.'));
+
+    const f1 = el('div', { class: 'onboarding__field' });
+    f1.appendChild(el('label', { class: 'onboarding__label' }, 'Total aligners in your plan'));
+    f1.appendChild(el('input', {
+      class: 'onboarding__input', type: 'number', min: '1', max: '99',
+      value: String(onboard.draft.totalTrays), id: 'ob_totalTrays',
+    }));
+    wrap.appendChild(f1);
+
+    const f2 = el('div', { class: 'onboarding__field' });
+    f2.appendChild(el('label', { class: 'onboarding__label' }, 'Which aligner are you on right now?'));
+    f2.appendChild(el('input', {
+      class: 'onboarding__input', type: 'number', min: '1',
+      value: String(onboard.draft.currentTray), id: 'ob_currentTray',
+    }));
+    wrap.appendChild(f2);
+
+    const f3 = el('div', { class: 'onboarding__field' });
+    f3.appendChild(el('label', { class: 'onboarding__label' }, 'How many days per aligner?'));
+    const chips = el('div', { class: 'onboarding__chips' });
+    const presets = [
+      { value: '11/11/10', label: '11 / 11 / 10' },
+      { value: '10/10/10', label: '10 / 10 / 10' },
+      { value: '7/7/7',    label: '7 / 7 / 7' },
+      { value: 'custom',   label: 'Custom' },
+    ];
+    for (const p of presets) {
+      const chip = el('button', {
+        class: 'onboarding__chip' + (onboard.draft.patternPreset === p.value ? ' onboarding__chip--active' : ''),
+        type: 'button',
+        dataset: { preset: p.value },
+      }, p.label);
+      chip.addEventListener('click', () => {
+        onboard.draft.patternPreset = p.value;
+        renderOnboardingStep();
+      });
+      chips.appendChild(chip);
+    }
+    f3.appendChild(chips);
+    if (onboard.draft.patternPreset === 'custom') {
+      const cf = el('div', { class: 'onboarding__field', style: 'margin-top:12px' });
+      cf.appendChild(el('label', { class: 'onboarding__label' }, 'Custom: days for tray 1'));
+      cf.appendChild(el('input', { class: 'onboarding__input', type: 'number', min: '1', value: String(onboard.draft.customTray1), id: 'ob_t1' }));
+      cf.appendChild(el('label', { class: 'onboarding__label', style: 'margin-top:12px' }, 'Custom: days for tray 2'));
+      cf.appendChild(el('input', { class: 'onboarding__input', type: 'number', min: '1', value: String(onboard.draft.customTray2), id: 'ob_t2' }));
+      cf.appendChild(el('label', { class: 'onboarding__label', style: 'margin-top:12px' }, 'Custom: days for tray 3+'));
+      cf.appendChild(el('input', { class: 'onboarding__input', type: 'number', min: '1', value: String(onboard.draft.customTrayOnward), id: 'ob_t3' }));
+      f3.appendChild(cf);
+    }
+    wrap.appendChild(f3);
+
+    wrap.appendChild(buildNav({
+      onBack: () => { onboard.step = 0; renderOnboardingStep(); },
+      nextLabel: 'Next',
+      onNext: () => {
+        const total = parseInt($('#ob_totalTrays').value, 10) || 14;
+        const cur = parseInt($('#ob_currentTray').value, 10) || 1;
+        onboard.draft.totalTrays = total;
+        onboard.draft.currentTray = Math.max(1, Math.min(cur, total));
+        if (onboard.draft.patternPreset === 'custom') {
+          onboard.draft.customTray1 = parseInt($('#ob_t1').value, 10) || 11;
+          onboard.draft.customTray2 = parseInt($('#ob_t2').value, 10) || 11;
+          onboard.draft.customTrayOnward = parseInt($('#ob_t3').value, 10) || 10;
+        }
+        onboard.step = 2;
+        renderOnboardingStep();
+      },
+    }));
+    return wrap;
+  }
+
+  function buildOnboardTimezone() {
+    const wrap = el('div');
+    wrap.appendChild(el('div', { class: 'onboarding__eyebrow' }, 'TIMEZONE'));
+    wrap.appendChild(el('h1', { class: 'onboarding__title' }, 'When does your day start?'));
+    wrap.appendChild(el('p', { class: 'onboarding__body' },
+      'The app buckets events by calendar day in this timezone. We guessed from your device — confirm or change.'));
+
+    const sel = el('select', { class: 'onboarding__select', id: 'ob_tz' });
+    const options = [
+      'Asia/Kolkata', 'Asia/Dubai', 'Asia/Singapore', 'Asia/Tokyo',
+      'Europe/London', 'Europe/Berlin', 'America/New_York', 'America/Chicago',
+      'America/Denver', 'America/Los_Angeles', 'Australia/Sydney', 'UTC',
+    ];
+    for (const tz of options) {
+      const opt = el('option', { value: tz }, tz);
+      if (tz === onboard.draft.timezone) opt.setAttribute('selected', 'selected');
+      sel.appendChild(opt);
+    }
+    wrap.appendChild(sel);
+
+    wrap.appendChild(buildNav({
+      onBack: () => { onboard.step = 1; renderOnboardingStep(); },
+      nextLabel: 'Next',
+      onNext: () => {
+        onboard.draft.timezone = $('#ob_tz').value;
+        onboard.step = 3;
+        renderOnboardingStep();
+      },
+    }));
+    return wrap;
+  }
+
+  function buildOnboardGate() {
+    const wrap = el('div');
+    wrap.appendChild(el('div', { class: 'onboarding__eyebrow' }, 'OPTIONAL'));
+    wrap.appendChild(el('h1', { class: 'onboarding__title' }, 'Personal gate.'));
+    wrap.appendChild(el('p', { class: 'onboarding__body' },
+      'Pick two dates that must both classify as Perfect. The app surfaces this on the Tray screen. Skip if you don\'t have specific dates in mind.'));
+
+    const toggleRow = el('div', { class: 'onboarding__field' });
+    const chips = el('div', { class: 'onboarding__chips' });
+    const yes = el('button', { class: 'onboarding__chip' + (onboard.draft.gateEnabled ? ' onboarding__chip--active' : ''), type: 'button' }, 'Set a gate');
+    const no  = el('button', { class: 'onboarding__chip' + (!onboard.draft.gateEnabled ? ' onboarding__chip--active' : ''), type: 'button' }, 'Skip for now');
+    yes.addEventListener('click', () => { onboard.draft.gateEnabled = true; renderOnboardingStep(); });
+    no.addEventListener('click',  () => { onboard.draft.gateEnabled = false; renderOnboardingStep(); });
+    chips.appendChild(yes); chips.appendChild(no);
+    toggleRow.appendChild(chips);
+    wrap.appendChild(toggleRow);
+
+    if (onboard.draft.gateEnabled) {
+      const f1 = el('div', { class: 'onboarding__field' });
+      f1.appendChild(el('label', { class: 'onboarding__label' }, 'Date 1'));
+      f1.appendChild(el('input', { class: 'onboarding__input', type: 'date', value: onboard.draft.gateDate1, id: 'ob_g1' }));
+      wrap.appendChild(f1);
+
+      const f2 = el('div', { class: 'onboarding__field' });
+      f2.appendChild(el('label', { class: 'onboarding__label' }, 'Date 2'));
+      f2.appendChild(el('input', { class: 'onboarding__input', type: 'date', value: onboard.draft.gateDate2, id: 'ob_g2' }));
+      wrap.appendChild(f2);
+    }
+
+    wrap.appendChild(buildNav({
+      onBack: () => onboard.step = 2,
+      nextLabel: 'Finish',
+      onNext: () => {
+        // Persist
+        const d = onboard.draft;
+        let tray1Days = 11, tray2Days = 11, trayOnwardDays = 10;
+        if (d.patternPreset === '11/11/10') { tray1Days = 11; tray2Days = 11; trayOnwardDays = 10; }
+        else if (d.patternPreset === '10/10/10') { tray1Days = 10; tray2Days = 10; trayOnwardDays = 10; }
+        else if (d.patternPreset === '7/7/7')    { tray1Days = 7;  tray2Days = 7;  trayOnwardDays = 7; }
+        else { tray1Days = d.customTray1; tray2Days = d.customTray2; trayOnwardDays = d.customTrayOnward; }
+
+        const patch = {
+          totalTrays: d.totalTrays,
+          currentTray: d.currentTray,
+          tray1Days, tray2Days, trayOnwardDays,
+          timezone: d.timezone,
+          gateEnabled: d.gateEnabled,
+          gateDate1: d.gateDate1 || d.gateDate1,
+          gateDate2: d.gateDate2 || d.gateDate2,
+          // Compatibility with legacy tray6* fields
+          tray6Date: d.gateDate1 || Store.state.settings.tray6Date,
+          tray6GateDate1: d.gateDate1 || Store.state.settings.tray6GateDate1,
+          tray6GateDate2: d.gateDate2 || Store.state.settings.tray6GateDate2,
+          onboarded: true,
+          medicalDisclaimerAck: true,
+        };
+        Store.updateSettings(patch);
+        endOnboarding();
+        go('today');
+      },
+    }));
+    return wrap;
+  }
+
+  function buildNav({ nextLabel, onBack, onNext }) {
+    const nav = el('div', { class: 'onboarding__nav' });
+    if (onBack) {
+      const b = el('button', { class: 'btn btn--ghost', type: 'button' }, 'Back');
+      b.addEventListener('click', onBack);
+      nav.appendChild(b);
+    }
+    const next = el('button', { class: 'btn btn--primary', type: 'button' }, nextLabel || 'Next');
+    next.addEventListener('click', onNext);
+    nav.appendChild(next);
+    return nav;
+  }
+
+  /* ============================================================
+   * Rules reference screen
+   * ============================================================ */
+
+  function renderRulesScreen() {
+    const root = $('#rulesContent');
+    root.innerHTML = '';
+    root.appendChild(el('h2', null, 'How the rules work'));
+    root.appendChild(el('p', null,
+      'Every status, forecast, and "next removal" number is derived by a small, deterministic JavaScript engine from your raw events. No AI is involved in the math.'));
+
+    root.appendChild(el('h3', null, 'Event zones'));
+    const zoneTable = el('table');
+    zoneTable.appendChild(el('thead', null, el('tr', null, [
+      el('th', null, 'Duration (min)'),
+      el('th', null, 'Zone'),
+      el('th', null, 'Note'),
+    ])));
+    const tbody = el('tbody');
+    [
+      ['0–30',   'Green',           'No breach'],
+      ['31–35',  'Green (minor)',   '"Breach" — exceeds 30 by 1–5 min'],
+      ['36–40',  'Amber',           'Moderate overrun'],
+      ['41–60',  'Red',             'Significant overrun (auto-Failure)'],
+      ['> 60',   'Extended',        'Auto-Failure'],
+    ].forEach(row => {
+      tbody.appendChild(el('tr', null, row.map(c => el('td', null, c))));
+    });
+    zoneTable.appendChild(tbody);
+    root.appendChild(zoneTable);
+    root.appendChild(el('p', null, [
+      'Breach = strictly more than 30 min. Excess = duration − 30.',
+    ]));
+
+    root.appendChild(el('h3', null, 'Daily classification'));
+    root.appendChild(el('p', null, 'Failure if ANY of these is true:'));
+    root.appendChild(el('ul', null, [
+      el('li', null, 'Worn time < 22 h.'),
+      el('li', null, 'Any single removal is 41–60 min.'),
+      el('li', null, 'Any single removal is > 60 min.'),
+      el('li', null, 'More than 5 removals.'),
+      el('li', null, 'Exactly 5 removals and none is ≤ 10 min.'),
+      el('li', null, 'Three or more amber removals (36–40 min).'),
+    ]));
+
+    root.appendChild(el('p', null, 'If no failure and worn ≥ 22 h:'));
+    root.appendChild(el('ul', null, [
+      el('li', null, [el('strong', null, 'Perfect'), ' — ≤ 4 removals, no amber/red; for 1–3 removals ≤ 2 green-zone breaches, for 4 removals ≤ 1.']),
+      el('li', null, [el('strong', null, 'Near Perfect'), ' — not Perfect, but no Failure; e.g. one or two amber removals, or 5 removals with at least one ≤ 10 min.']),
+      el('li', null, [el('strong', null, 'Imperfect'), ' — none of the above, but no Failure.']),
+    ]));
+
+    root.appendChild(el('h3', null, 'Forecast'));
+    root.appendChild(el('p', null,
+      'The day classifies as if no further removals were added. Recomputed on every change.'));
+
+    root.appendChild(el('h3', null, 'Next-removal max'));
+    root.appendChild(el('p', null, [
+      'The largest single-removal duration that keeps the day capable of a chosen target (',
+      el('code', null, 'perfect'),
+      ' / ',
+      el('code', null, 'near-perfect'),
+      ' / ',
+      el('code', null, 'avoid-failure'),
+      '). It checks every rule simultaneously. If Perfect is no longer achievable, the app targets Near Perfect.',
+    ]));
+
+    root.appendChild(el('h3', null, 'Multi-removal plan'));
+    root.appendChild(el('p', null,
+      'If you still need more removals today, the largest uniform duration X such that adding N removals each of X still hits the target. Conservative feasible plan.'));
+
+    root.appendChild(el('h3', null, 'Streaks'));
+    const stTbl = el('table');
+    stTbl.appendChild(el('thead', null, el('tr', null, [
+      el('th', null, 'Streak'), el('th', null, 'Counts'),
+    ])));
+    const sBody = el('tbody');
+    [
+      ['Perfect', 'consecutive Perfect days. NO_DATA and IN_PROGRESS don\'t break it.'],
+      ['Non-failure', 'consecutive Perfect + Near Perfect + Imperfect days. Failure resets it.'],
+    ].forEach(row => {
+      sBody.appendChild(el('tr', null, row.map(c => el('td', null, c))));
+    });
+    stTbl.appendChild(sBody);
+    root.appendChild(stTbl);
+
+    root.appendChild(el('h3', null, 'Invariants'));
+    root.appendChild(el('ul', null, [
+      el('li', null, 'Raw events are the only source of truth.'),
+      el('li', null, 'Every derived field is recomputable from events.'),
+      el('li', null, 'No AI/LLM is involved in any calculation.'),
+    ]));
   }
 
   /* ============================================================
@@ -1176,6 +1533,11 @@
   // tiny helper for chained DOM mutation
   Element.prototype.also = function (fn) { fn(this); return this; };
 
+  // ---- Rules screen ----
+  function openRulesScreen() {
+    go('rules');
+  }
+
   // Re-render on store changes
   Store.subscribe(() => {
     if (currentScreen === 'today') renderToday();
@@ -1189,6 +1551,14 @@
   // Boot
   document.addEventListener('DOMContentLoaded', () => {
     wire();
-    go('today');
+    // Rules screen back button
+    $('#rulesBackBtn').addEventListener('click', () => {
+      go('settings');
+    });
+    if (!Store.state.settings.onboarded) {
+      startOnboarding();
+    } else {
+      go('today');
+    }
   });
 })();

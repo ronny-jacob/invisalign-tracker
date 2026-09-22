@@ -52,7 +52,7 @@
   const defaultSettings = () => ({
     theme: 'system',
     timezone: 'Asia/Kolkata',
-    currentTray: 5,
+    currentTray: 1,
     totalTrays: 14,
     tray1Days: 11,
     tray2Days: 11,
@@ -63,7 +63,14 @@
     tray6Date: '2026-09-20',
     tray6GateDate1: '2026-09-18',
     tray6GateDate2: '2026-09-19',
+    // User-defined personal gate (formerly Tray 6 gate).
+    gateEnabled: true,
+    gateName: 'Personal Gate',
+    gateDate1: '2026-09-18',
+    gateDate2: '2026-09-19',
     notificationsEnabled: false,
+    onboarded: false,        // first-run onboarding flag
+    medicalDisclaimerAck: false,
   });
 
   function emptyState() {
@@ -88,6 +95,11 @@
       }
       // Backfill tray start dates from existing events if missing.
       backfillTrayStarts(parsed);
+      // Migration: pre-existing users with events are considered onboarded.
+      // The 'onboarded' flag was added later; treat absent as 'already done'.
+      if (parsed.settings.onboarded === undefined && parsed.events.length > 0) {
+        parsed.settings.onboarded = true;
+      }
       return parsed;
     } catch (err) {
       console.warn('Store: failed to load, starting fresh', err);
@@ -141,7 +153,10 @@
     }
   }
 
-  let state = load();
+  let state = emptyState();
+  // Populate from localStorage after all functions are declared so that
+  // backfillTrayStarts → todayKey can read state.settings.timezone safely.
+  state = load();
 
   /* ---- date helpers ----
    * We bucket events by the user's local date (per settings.timezone).

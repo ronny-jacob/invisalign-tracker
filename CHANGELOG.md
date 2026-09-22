@@ -5,6 +5,48 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-09-22
+
+### Added
+
+- **First-run onboarding flow.** A four-step modal shown on first
+  launch (and re-runnable from Settings → Re-run setup):
+    1. **Welcome** — privacy one-liner and medical disclaimer.
+    2. **Your plan** — total aligners, current aligner, day-count
+       pattern (preset chips: 11/11/10, 10/10/10, 7/7/7, or custom).
+    3. **Timezone** — pre-filled with the device's detected
+       timezone; user can change.
+    4. **Personal gate** (optional) — pick two dates that must
+       both classify as Perfect, or skip.
+- **In-app rules reference** (`Settings → How the rules work →
+  View`) — formatted version of `RULESHEET.md` accessible without
+  leaving the app.
+- **Personal gate settings** (`gateEnabled`, `gateName`, `gateDate1`,
+  `gateDate2`) replace the hardcoded `tray6Date`, `tray6GateDate1`,
+  `tray6GateDate2` fields. The legacy fields are kept in sync for
+  backward compatibility.
+
+### Fixed
+
+- **Empty-state MAX bug.** The empty-Today screen previously
+  hardcoded "MAX 60 MIN" (which is incorrect — 60 min is a red-zone
+  failure). It now calls `Rules.maxNextRemoval([], 'perfect')`,
+  which correctly returns 35.
+- **TDZ bug in Store load order.** The `backfillTrayStarts` call
+  inside `load()` referenced `todayKey()`, which in turn accessed
+  `state` before `let state = ...` had finished initialising.
+  Resolved by separating `let state = emptyState()` from
+  `state = load()` so function declarations are fully hoisted first.
+- **Default currentTray** changed from 5 to 1. New users start on
+  tray 1; existing users keep their current value (migration).
+- **Existing users** with logged events are auto-marked as
+  onboarded and skip the new flow.
+
+### Notes
+
+- 19 new tests for onboarding + rules screen.
+- Total tests: **178 passing**.
+
 ## [1.2.1] - 2026-09-22
 
 ### Fixed
