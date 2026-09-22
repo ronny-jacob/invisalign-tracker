@@ -205,6 +205,17 @@
         : null,
     ));
 
+    // Timer card + Start Timer button visibility
+    const timer = Store.getTimer();
+    if (timer.running) {
+      renderTimerCard();
+      startTimerTick();
+    } else {
+      $('#timerCard').hidden = true;
+      stopTimerTick();
+    }
+    $('#startTimerBtn').hidden = timer.running;
+
     // Forecast card
     const fc = $('#forecastCard');
     fc.innerHTML = '';
@@ -1027,6 +1038,154 @@
   }
 
   /* ============================================================
+   * Timer state and live tick
+   * ============================================================ */
+
+  let timerTickHandle = null;
+
+  function startTimerTick() {
+    stopTimerTick();
+    // Update every second while the timer is running.
+    timerTickHandle = setInterval(() => {
+      const card = $('#timerCard');
+      if (!card || card.hidden) {
+        stopTimerTick();
+        return;
+      }
+      renderTimerCard();
+    }, 1000);
+  }
+  function stopTimerTick() {
+    if (timerTickHandle) {
+      clearInterval(timerTickHandle);
+      timerTickHandle = null;
+    }
+  }
+
+  function renderTimerCard() {
+    const t = Store.getTimer();
+    const card = $('#timerCard');
+    if (!t.running) {
+      card.hidden = true;
+      card.innerHTML = '';
+      stopTimerTick();
+      return;
+    }
+    card.hidden = false;
+    card.dataset.state = t.elapsedMinutes >= Store.LONG_RUNNING_MIN ? 'long' : 'active';
+    const elapsed = formatTimerElapsed(t.elapsedMs);
+    card.innerHTML = '';
+    card.appendChild(el('div', { class: 'timer-card__head' }, 'TRAY OUT'));
+    card.appendChild(el('div', { class: 'timer-card__elapsed' }, elapsed));
+    if (t.elapsedMinutes >= Store.LONG_RUNNING_MIN) {
+      card.appendChild(el('div', { class: 'timer-card__warn' },
+        `Running for ${elapsed} — that's a long time. Confirm when you stop.`));
+    }
+    const actions = el('div', { class: 'timer-card__actions' });
+    const stopBtn = el('button', { class: 'btn btn--primary', type: 'button', id: 'stopTimerBtn' },
+      'Stop & Log');
+    const discardBtn = el('button', { class: 'btn btn--ghost', type: 'button', id: 'discardTimerBtn' },
+      'Discard');
+    stopBtn.addEventListener('click', () => handleStopTimer());
+    discardBtn.addEventListener('click', () => handleDiscardTimer());
+    actions.appendChild(stopBtn);
+    actions.appendChild(discardBtn);
+    card.appendChild(actions);
+  }
+
+  function formatTimerElapsed(ms) {
+    const totalSec = Math.floor(ms / 1000);
+    const h = Math.floor(totalSec / 3600);
+    const m = Math.floor((totalSec % 3600) / 60);
+    const s = totalSec % 60;
+    if (h > 0) {
+      return `${h}h ${String(m).padStart(2, '0')}m ${String(s).padStart(2, '0')}s`;
+    }
+    return `${m}m ${String(s).padStart(2, '0')}s`;
+  }
+
+  function handleStartTimer() {
+    Store.startTimer();
+    renderToday();
+    startTimerTick();
+    showToast('Timer started.');
+  }
+
+  function handleStopTimer() {
+    const t = Store.getTimer();
+    if (!t.running) return;
+    const minutes = t.elapsedMinutes;
+    if (minutes >= Store.LONG_RUNNING_MIN) {
+      // Ask for confirmation
+      confirmLongTimer(t, minutes);
+    } else {
+      logTimerResult(t, minutes);
+    }
+  }
+
+  function confirmLongTimer(t, minutes) {
+    const sheet = $('#confirmSheet');
+    $('#confirmTitle').textContent = 'Timer ran for a long time';
+    $('#confirmBody').textContent = `Timer has been running for ${formatTimerElapsed(t.elapsedMs)}. Is this correct?`;
+    const ok = $('#confirmOk');
+    const cancel = $('#confirmCancel');
+    // Rename the buttons for this context
+    ok.textContent = 'Use time';
+    cancel.textContent = 'Discard';
+    function cleanup() {
+      ok.removeEventListener('click', okHandler);
+      cancel.removeEventListener('click', cancelHandler);
+      sheet.querySelector('[data-confirm-close]').removeEventListener('click', cancelHandler);
+      sheet.querySelector('.sheet__backdrop').removeEventListener('click', cancelHandler);
+      // Restore default button labels
+      ok.textContent = 'Confirm';
+      cancel.textContent = 'Cancel';
+    }
+    function okHandler() {
+      cleanup();
+      closeSheet(sheet);
+      logTimerResult(t, minutes);
+    }
+    function cancelHandler() {
+      cleanup();
+      closeSheet(sheet);
+      // User discarded the long timer; show a toast with an undo path:
+      // they can re-add via the manual entry sheet by tapping Add Removal.
+      showToast('Timer discarded.');
+    }
+    ok.addEventListener('click', okHandler);
+    cancel.addEventListener('click', cancelHandler);
+    sheet.querySelector('[data-confirm-close]').addEventListener('click', cancelHandler);
+    sheet.querySelector('.sheet__backdrop').addEventListener('click', cancelHandler);
+    openSheet(sheet);
+  }
+
+  function logTimerResult(t, minutes) {
+    // Log under today's date with the exact startTs/endTs we recorded.
+    Store.stopTimer();
+    const ev = Store.addRemoval(Store.todayKey(), minutes, {
+      startTs: t.startedAt,
+      endTs: Date.now(),
+    });
+    renderToday();
+    stopTimerTick();
+    showToast(`Logged ${minutes} min · ${formatRelative(ev.createdTs)}`, 'Undo', () => {
+      Store.deleteRemoval(ev.id);
+      showToast('Removed.');
+      renderToday();
+    });
+  }
+
+  function handleDiscardTimer() {
+    confirmDanger('Discard timer?', 'This timer will not be logged.', () => {
+      Store.discardTimer();
+      renderToday();
+      stopTimerTick();
+      showToast('Timer discarded.');
+    });
+  }
+
+  /* ============================================================
    * Onboarding (first-run)
    * ============================================================ */
 
@@ -1451,6 +1610,9 @@
     // Today add button
     $('#addBtn').addEventListener('click', openAddSheet);
 
+    // Start timer button
+    $('#startTimerBtn').addEventListener('click', handleStartTimer);
+
     // Add sheet
     $('#addSheet').querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', () => closeSheet($('#addSheet'))));
     $('#addForm').addEventListener('submit', (e) => {
@@ -1559,6 +1721,16 @@
       startOnboarding();
     } else {
       go('today');
+      // If a timer was running, resume the live tick
+      if (Store.getTimer().running) startTimerTick();
     }
+    // Re-render on tab visibility change so the timer updates
+    // immediately when the user comes back (setInterval may have
+    // been throttled in the background).
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden && currentScreen === 'today') {
+        renderToday();
+      }
+    });
   });
 })();

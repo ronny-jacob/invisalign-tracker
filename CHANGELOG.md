@@ -5,6 +5,46 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-09-22
+
+### Added
+
+- **Tray-out timer.** A new `Start Timer` button on Today starts
+  a background timer. While running, a prominent card shows the
+  elapsed time (live-updating every second) and offers
+  `Stop & Log` / `Discard` actions.
+- **Timestamp-based, not interval-based.** The timer's source of
+  truth is `Date.now() - startedAt`, so elapsed time stays
+  accurate across:
+    - Screen lock / OS sleep
+    - Browser backgrounding
+    - Page refresh / re-open
+    - Tab visibility changes
+- **Background recovery.** Timer state lives in `localStorage` as
+  `{ running, startedAt }`. On app boot, if a timer was running
+  before, it is restored and the live tick is resumed. On
+  `visibilitychange`, the Today screen re-renders so the elapsed
+  counter reflects the actual elapsed time.
+- **Long-running confirmation.** Stopping a timer that has run
+  for **≥ 2 hours** triggers a confirmation sheet:
+  "Timer has been running for 2h 30m. Is this correct?"
+  with `Use time` / `Discard` actions. The app never silently
+  invents a duration.
+- **Discard confirm.** Discarding a timer asks for confirmation
+  so an accidental tap doesn't lose data.
+- **Export/import** the running timer state in JSON backups.
+- 21 new tests covering timer state, UI rendering, long-running
+  detection, discard flow, export/import round-trip.
+
+### Notes
+
+- Manual `Add Removal` and the timer are independent. You can
+  log manual entries while a timer is running.
+- A logged timer event stores the exact `startTs` (the moment
+  you tapped Start) and `endTs` (the moment you tapped Stop).
+
+Total tests: **199 passing**.
+
 ## [1.3.0] - 2026-09-22
 
 ### Added

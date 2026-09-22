@@ -348,6 +348,47 @@
       .sort((a, b) => a - b);
   }
 
+  /* ----------------------------------------------------------
+   * Tray-out timer
+   *
+   * Uses Date.now() as the source of truth (not setInterval) so the
+   * elapsed time is correct even after the OS throttles the JS
+   * thread, after screen lock, after browser backgrounding, or
+   * after a refresh — the timer state lives in localStorage.
+   * ---------------------------------------------------------- */
+
+  const LONG_RUNNING_MIN = 120; // 2h — beyond this, prompt on stop
+
+  function getTimer() {
+    const t = state.timer || { running: false, startedAt: null };
+    if (!t.running) return { running: false, startedAt: null, elapsedMs: 0, elapsedMinutes: 0 };
+    const startedAt = t.startedAt;
+    if (!startedAt) return { running: false, startedAt: null, elapsedMs: 0, elapsedMinutes: 0 };
+    const elapsedMs = Math.max(0, Date.now() - startedAt);
+    return { running: true, startedAt, elapsedMs, elapsedMinutes: Math.floor(elapsedMs / 60_000) };
+  }
+
+  function startTimer() {
+    state.timer = { running: true, startedAt: Date.now() };
+    save(state);
+    emit();
+    return state.timer;
+  }
+
+  function stopTimer() {
+    const t = getTimer();
+    state.timer = { running: false, startedAt: null };
+    save(state);
+    emit();
+    return t;
+  }
+
+  function discardTimer() {
+    state.timer = { running: false, startedAt: null };
+    save(state);
+    emit();
+  }
+
   function exportJSON() {
     return JSON.stringify({
       schemaVersion: state.schemaVersion,
@@ -355,6 +396,7 @@
       exportedAt: new Date().toISOString(),
       events: state.events,
       settings: state.settings,
+      timer: state.timer,
     }, null, 2);
   }
 
@@ -403,6 +445,9 @@
     if (parsed.settings) {
       state.settings = Object.assign(defaultSettings(), parsed.settings);
     }
+    if (parsed.timer) {
+      state.timer = parsed.timer;
+    }
     save(state);
     emit();
     return state;
@@ -425,6 +470,8 @@
     addRemoval, undoLastRemoval, editRemoval, deleteRemoval,
     updateSettings, setTrayStartDate, clearAll,
     traySchedule, trayStartsKnown,
+    getTimer, startTimer, stopTimer, discardTimer,
+    LONG_RUNNING_MIN,
     exportJSON, exportCSV, importJSON,
     seedDemo,
     get state() { return state; },
