@@ -179,6 +179,15 @@
    * Today
    * ============================================================ */
 
+  // ----------------------------------------------------------
+  // Status helper: applies the softening rule (one-off 41–60 min
+  // → Imperfect) so every screen shows the same status.
+  // ----------------------------------------------------------
+  function statusForDay(events, dayKey) {
+    const history = Store.historyEventsExcludingToday(dayKey, 7);
+    return R.classifyDayWithSoftening(events, history, dayKey);
+  }
+
   function renderToday() {
     // Header pill
     const s = Store.state.settings;
@@ -188,7 +197,7 @@
     const today = Store.todayKey();
     const events = Store.eventsForDate(today);
     const summary = R.dailySummary(events);
-    const forecast = R.forecast(events);
+    const forecast = statusForDay(events, today).status;
 
     // 3-cell grid
     const grid = $('#todayGrid');
@@ -251,19 +260,13 @@
     mr.hidden = true;
 
     if (summary.count === 0) {
-      nr.dataset.tone = 'progress';
-      nr.appendChild(el('div', { class: 'next-removal-card__head' }, 'NEXT REMOVAL'));
-      // Use the rules engine, not a hardcoded 60. For a target of
-      // Perfect on an empty day, the max safe single removal is 35
-      // (a green-zone breach; 36+ would be amber and disqualify Perfect).
-      const emptyMax = R.maxNextRemoval([], 'perfect');
-      nr.appendChild(el('div', { class: 'next-removal-card__max' }, [
-        'MAX ', el('span', null, String(emptyMax)),
-        el('span', { class: 'next-removal-card__unit' }, ' MIN')
-      ]));
-      nr.appendChild(el('div', { class: 'next-removal-card__sub' }, 'Perfect is still possible.'));
+      // Empty day: render the same capacity-list view as if the day
+      // had events. pickTarget falls back to forecast, which is
+      // NO_DATA, so target falls back to 'perfect' as the best
+      // still-achievable outcome.
+      renderNextRemoval(nr, mr, events, R.STATUS.PERFECT);
     } else {
-      renderNextRemoval(nr, mr, events);
+      renderNextRemoval(nr, mr, events, forecast);
     }
   }
 
@@ -296,75 +299,124 @@
     ]);
   }
 
-  function renderNextRemoval(card, multiCard, events) {
-    const target = pickTarget(events);
+  function renderNextRemoval(card, multiCard, events, softenedForecast) {
+    const target = pickTarget(events, softenedForecast);
     const max = R.maxNextRemoval(events, target);
-    const forecast = R.forecast(events);
-    const tone = toneForStatus(forecast);
+    const tone = toneForStatus(softenedForecast);
     card.dataset.tone = tone;
     card.innerHTML = '';
 
-    // Two-column section: NEXT REMOVAL | TOTAL LEFT
-    const sections = el('div', { class: 'next-removal-card__sections' });
     card.appendChild(el('div', { class: 'next-removal-card__head' }, 'NEXT REMOVAL'));
-    card.appendChild(sections);
 
-    const nextSec = el('div', { class: 'next-removal-card__section' });
-    nextSec.appendChild(el('div', { class: 'next-removal-card__max' }, [
-      `MAX ${max} `, el('span', { class: 'next-removal-card__unit' }, 'MIN')
-    ]));
-    nextSec.appendChild(el('div', { class: 'next-removal-card__sub' },
-      max === 0 ? 'No safe next removal.' : statusSubtext(forecast, target)));
-    sections.appendChild(nextSec);
+    // Build the per-count capacity list (1 more, 2 more, 3 more, …).
+    // Each row says "N more removal{s}: X MIN each" — the largest
+    // uniform duration that lets N more removals still hit the target.
+    const remainingSlots = remainingRemovalSlots(events, target);
+    const plans = [];
+    for (let n = 1; n <= remainingSlots; n++) {
+      const p = R.planRemaining(events, target, n);
+      if (p.feasible && p.perRemoval > 0) plans.push({ count: n, per: p.perRemoval });
+    }
 
-    // TOTAL LEFT — only when day still has room and not Failure
+    const list = el('div', { class: 'next-removal-card__list' });
+
+    if (softenedForecast === R.STATUS.FAILURE) {
+      // Failure is locked in — show only the failure copy. No list.
+      list.appendChild(el('div', {
+        class: 'next-removal-card__row next-removal-card__row--failure',
+      }, [
+        el('span', { class: 'next-removal-card__row-text' },
+          'Failure is locked in.'),
+      ]));
+      list.appendChild(el('div', {
+        class: 'next-removal-card__row next-removal-card__row--failure',
+      }, [
+        el('span', { class: 'next-removal-card__row-sub' },
+          'More removals won\'t change today.'),
+      ]));
+    } else if (remainingSlots === 0) {
+      // At cap for target.
+      const targetLabel = target === 'perfect' ? 'Perfect' :
+                         target === 'near-perfect' ? 'Near Perfect' : 'this';
+      list.appendChild(el('div', {
+        class: 'next-removal-card__row next-removal-card__row--neutral',
+      }, [
+        el('span', { class: 'next-removal-card__row-text' },
+          'No more removals today.'),
+      ]));
+      list.appendChild(el('div', {
+        class: 'next-removal-card__row next-removal-card__row--neutral',
+      }, [
+        el('span', { class: 'next-removal-card__row-sub' },
+          `${targetLabel} caps at ${target === 'perfect' ? 4 : 5} removals.`),
+      ]));
+    } else if (plans.length === 0) {
+      // Today's events block any further removal that hits the
+      // chosen target (e.g. one 41-min + target near-perfect: any
+      // further 41-min would tip into ≥ 2 ambers or another red).
+      list.appendChild(el('div', {
+        class: 'next-removal-card__row next-removal-card__row--neutral',
+      }, [
+        el('span', { class: 'next-removal-card__row-text' },
+          'No safe next removal.'),
+      ]));
+      list.appendChild(el('div', {
+        class: 'next-removal-card__row next-removal-card__row--neutral',
+      }, [
+        el('span', { class: 'next-removal-card__row-sub' },
+          'Today\'s events already meet the cap for the current best target.'),
+      ]));
+    } else {
+      // Per-count capacity list.
+      for (const p of plans) {
+        const unitSuffix = p.count === 1 ? ' MIN' : ' MIN EACH';
+        const row = el('div', { class: 'next-removal-card__row' }, [
+          el('span', { class: 'next-removal-card__row-count' },
+            `${p.count} more ${pluralize(p.count, 'removal', 'removals')}`),
+          el('span', { class: 'next-removal-card__row-max' }, [
+            `${p.per} `,
+            el('span', { class: 'next-removal-card__unit' }, unitSuffix),
+          ]),
+        ]);
+        list.appendChild(row);
+      }
+    }
+    card.appendChild(list);
+
+    // TOTAL LEFT — only when day still has room (and not Failure).
     const allowed = R.MINUTES_IN_DAY - R.WORN_MINIMUM; // 120
     const total = R.totalRemovalMinutes(events);
     const left = Math.max(0, allowed - total);
-    if (left > 0 && forecast !== R.STATUS.FAILURE) {
-      const totalSec = el('div', { class: 'next-removal-card__section' });
+    if (left > 0 && softenedForecast !== R.STATUS.FAILURE) {
+      const totalSec = el('div', { class: 'next-removal-card__totalbox' });
       totalSec.appendChild(el('div', { class: 'next-removal-card__total' }, [
         `${left} `, el('span', { class: 'next-removal-card__unit' }, 'MIN LEFT')
       ]));
-      totalSec.appendChild(el('div', { class: 'next-removal-card__sub' }, 'before 22h'));
-      sections.appendChild(totalSec);
+      totalSec.appendChild(el('div', { class: 'next-removal-card__sub' },
+        `before 22h · max single removal ${max} MIN`));
+      card.appendChild(totalSec);
     }
 
-    // Multi-removal hint: show if more removals are likely possible
-    if (forecast === R.STATUS.FAILURE) return;
-    const remainingSlots = remainingRemovalSlots(events, target);
-    if (remainingSlots >= 1 && target !== 'avoid-failure') {
-      // remainingSlots = max additional removals allowed for target.
-      // We plan for ALL remainingSlots being filled, each at the
-      // same duration X. Largest X is the conservative feasible plan.
-      const plan = R.planRemaining(events, target, remainingSlots);
-      if (plan.feasible && plan.perRemoval > 0) {
-        multiCard.hidden = false;
-        multiCard.dataset.tone = tone;
-        multiCard.innerHTML = '';
-        const head = remainingSlots === 1
-          ? 'IF YOU NEED 1 MORE REMOVAL'
-          : `IF YOU NEED ${remainingSlots} MORE REMOVALS`;
-        multiCard.appendChild(el('div', { class: 'multi-removal-card__head' }, head));
-        multiCard.appendChild(el('div', { class: 'multi-removal-card__plan' }, [
-          `MAX ${plan.perRemoval} `,
-          el('span', { class: 'next-removal-card__unit' }, remainingSlots === 1 ? 'MIN' : 'MIN EACH')
-        ]));
-        multiCard.appendChild(el('div', { class: 'multi-removal-card__sub' },
-          remainingSlots === 1
-            ? 'A conservative plan for this next removal.'
-            : 'Conservative feasible plan, leaving room to stay on target.'));
-      }
+    // The separate multi-removal card is no longer used — its content
+    // is now inlined above. Caller still passes `multiCard` for
+    // back-compat; we just hide it.
+    if (multiCard) {
+      multiCard.hidden = true;
+      multiCard.innerHTML = '';
     }
   }
 
-  function pickTarget(events) {
+  function pickTarget(events, softenedStatus) {
     // The displayed guidance should target the BEST STILL-ACHIEVABLE
     // outcome. Once the day has crossed out of Perfect possibility
     // (e.g., 2 amber removals, 5 removals, etc.), we still want to
     // give useful next-removal advice — targeting Perfect would lock
     // the answer at 0, which is unhelpful and contradicts spec §14.
-    const forecast = R.forecast(events);
+    // softenedStatus is the failure-softening-aware forecast; if
+    // omitted, the spec-strict forecast is used.
+    const forecast = softenedStatus != null
+      ? softenedStatus
+      : R.forecast(events);
     if (forecast === R.STATUS.FAILURE) return 'avoid-failure';
     if (forecast === R.STATUS.IMPERFECT) return 'near-perfect';
     if (forecast === R.STATUS.NEAR_PERFECT) {
@@ -419,6 +471,10 @@
     for (const d of dates) {
       const events = Store.eventsForDate(d);
       const summary = R.dailySummary(events);
+      // Apply softening-aware classification (one-off 41–60 min → Imperfect).
+      const softened = statusForDay(events, d);
+      summary.status = softened.status;
+      summary.reason = softened.reason;
       const last = events.length
         ? events.reduce((a, b) => (b.createdTs > a.createdTs ? b : a))
         : null;
@@ -476,6 +532,12 @@
     const dayKey = currentDayKey;
     const events = Store.eventsForDate(dayKey);
     const summary = R.dailySummary(events);
+    // Apply softening-aware classification (one-off 41–60 min → Imperfect).
+    const softened = statusForDay(events, dayKey);
+    // Update `summary.status` and `summary.reason` in place so all
+    // downstream UI in this view uses the softened values.
+    summary.status = softened.status;
+    summary.reason = softened.reason;
 
     // Determine which tray(s) this day's events were logged under.
     // If all events share the same tray, show it. If mixed (e.g., the
@@ -745,10 +807,10 @@
     }
 
     // Build a flat list of {date, status} for every tracked day,
-    // oldest → newest.
+    // oldest → newest. Status uses the softening-aware variant.
     const allDays = dates.map(d => ({
       date: d,
-      status: R.classifyDay(Store.eventsForDate(d)).status,
+      status: statusForDay(Store.eventsForDate(d), d).status,
     }));
     const today = Store.todayKey();
 
@@ -1536,6 +1598,10 @@
       el('li', null, [el('strong', null, 'Near Perfect'), ' — not Perfect, but no Failure; e.g. one or two amber removals, or 5 removals with at least one ≤ 10 min.']),
       el('li', null, [el('strong', null, 'Imperfect'), ' — none of the above, but no Failure.']),
     ]));
+
+    root.appendChild(el('h3', null, 'One-off 41–60 min softening'));
+    root.appendChild(el('p', null,
+      'The 41–60-min rule is loosened by one: a day with exactly one 41–60-min removal, where that removal is the only such event in the trailing 7-day window (counting today), is classified as Imperfect instead of Failure. The softening only fires when the red zone is the sole failure trigger — other triggers (worn < 22h, >60 min, > 5 removals, 5 removals with no ≤ 10 min, 3+ ambers) keep their full effect. Today is the one-off relief; tomorrow, the same 41–60 removal would no longer soften.'));
 
     root.appendChild(el('h3', null, 'Forecast'));
     root.appendChild(el('p', null,

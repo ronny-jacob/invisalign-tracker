@@ -75,6 +75,17 @@ feasible plan — any non-uniform allocation ≤ X is also safe.
 Both gate days must classify as **Perfect**. Near Perfect does not
 qualify. User-defined; not medical advice.
 
+## One-off 41–60 min softening
+
+The 41–60-min Failure rule is loosened by one: a day with exactly
+one 41–60-min removal, where that removal is the only such event
+in the trailing 7-day window (counting today), is classified as
+**Imperfect** instead of Failure. The softening only fires when
+the red zone is the sole failure trigger — other triggers (worn
+< 22h, > 60 min, > 5 removals, 5 removals with no ≤ 10 min, 3+
+ambers) keep their full effect. This deviation from spec §10 is
+recorded in `CHANGELOG.md` under v1.6.0.
+
 ## Invariants
 
 - Raw events are the only source of truth.

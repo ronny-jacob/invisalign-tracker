@@ -319,6 +319,25 @@
     return s.trayOnwardDays;
   }
 
+  /* ----------------------------------------------------------
+   * History-window helpers.
+   *
+   * Used by the failure softening logic in rules.js. The caller
+   * specifies a `today` and a window of past days; we return the
+   * events in that window (excluding today).
+   * ---------------------------------------------------------- */
+
+  function historyEventsExcludingToday(todayKeyValue, pastDays) {
+    pastDays = Math.max(0, Math.floor(pastDays || 0));
+    const out = [];
+    if (!todayKeyValue) return out;
+    for (let i = 1; i <= pastDays; i++) {
+      const d = addDays(todayKeyValue, -i);
+      for (const e of eventsForDate(d)) out.push(e);
+    }
+    return out;
+  }
+
   function daysBetween(a, b) {
     // a, b are YYYY-MM-DD; returns inclusive difference (today - start).
     const [ay, am, ad] = a.split('-').map(Number);
@@ -470,6 +489,7 @@
     subscribe,
     todayKey,
     eventsForDate, allDatesSorted,
+    historyEventsExcludingToday,
     addRemoval, undoLastRemoval, editRemoval, deleteRemoval,
     updateSettings, setTrayStartDate, clearAll,
     traySchedule, trayStartsKnown,

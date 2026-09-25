@@ -292,6 +292,53 @@ a { color: var(--accent); }
 .next-removal-card[data-tone="failure"] .next-removal-card__total { color: var(--red); }
 .next-removal-card[data-tone="perfect"]  .next-removal-card__total { color: var(--green); }
 
+/* Per-count capacity list (1 more, 2 more, 3 more, …) */
+.next-removal-card__list {
+  display: flex; flex-direction: column;
+  margin-top: 4px;
+  gap: 1px;
+}
+.next-removal-card__row {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+  border-top: 1px solid var(--separator);
+}
+.next-removal-card__row:first-child {
+  border-top: 0;
+  padding-top: 2px;
+}
+.next-removal-card__row-count {
+  font-size: 15px;
+  color: var(--fg-secondary);
+  font-weight: 500;
+}
+.next-removal-card__row-max {
+  font-size: 17px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg);
+  letter-spacing: -0.01em;
+}
+.next-removal-card[data-tone="failure"] .next-removal-card__row-max { color: var(--fg); }
+.next-removal-card__row-text {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--fg);
+}
+.next-removal-card__row-sub {
+  font-size: 13px;
+  color: var(--fg-secondary);
+}
+.next-removal-card__row--failure .next-removal-card__row-text {
+  color: var(--red);
+}
+.next-removal-card__totalbox {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--separator);
+}
+
 .forecast-card__why {
   margin-top: 8px;
   font-size: 13px;

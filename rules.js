@@ -20,6 +20,18 @@
   const RED_MAX = 60;
   const SHORT_EVENT_MAX = 10; // ≤10 min = qualifies for 5-removal grace
 
+  // Calendar-date arithmetic in YYYY-MM-DD strings. Returns the number
+  // of days FROM `earlier` TO `later` (positive when later > earlier).
+  // Inclusive of both endpoints (returns 0 if same day, 1 if a day apart).
+  function daysBetween(earlier, later) {
+    if (!earlier || !later) return Infinity;
+    const [ey, em, ed] = earlier.split('-').map(Number);
+    const [ly, lm, ld] = later.split('-').map(Number);
+    const edMs = new Date(ey, em - 1, ed).getTime();
+    const ldMs = new Date(ly, lm - 1, ld).getTime();
+    return Math.round((ldMs - edMs) / 86_400_000);
+  }
+
   const ZONE = Object.freeze({
     GREEN: 'GREEN',           // 0–30
     GREEN_BREACH: 'GREEN_BREACH', // 31–35
@@ -182,6 +194,94 @@
   function wornTimeReason(worn, total) {
     const overOrUnder = worn < WORN_MINIMUM ? 'below' : 'exactly';
     return `Reason: worn time is ${overOrUnder} 22h.`;
+  }
+
+  /* ----------------------------------------------------------
+   * Softening — one-off 41–60-min forgiveness.
+   *
+   * The spec (§10) lists "Any single removal is 41–60 minutes" as
+   * an unconditional Failure condition. This app loosens that one
+   * trigger by exactly one rule, so a single brief slip doesn't
+   * lock the day in as Failure.
+   *
+   * Softening fires only when ALL of these are true:
+   *   (a) today has exactly one event with duration in [41, 60].
+   *   (b) that one event is the only such event in the trailing
+   *       7-day window (counting today back 6 days).
+   *   (c) the red-zone trigger is the ONLY Failure trigger — i.e.
+   *       classifyDay under the spec returns Failure only because
+   *       of "Any single removal is 41–60 minutes". Other triggers
+   *       (worn < 22h, >60 min extended, > 5 removals, 5 removals
+   *       with no ≤ 10 min, 3+ ambers) are authoritative and
+   *       disqualify softening.
+   *
+   * When softening fires, the day is classified as Imperfect
+   * with an explanatory reason instead of Failure.
+   *
+   * classifyDay() itself remains pure-of-inputs (history-independent).
+   * The softening-aware variant takes the past 6 days' events as
+   * a separate input; the caller (app.js) supplies them via Store.
+   * ---------------------------------------------------------- */
+
+  function isRedZone(duration) {
+    const d = Math.floor(duration);
+    return d >= RED_MIN && d <= RED_MAX;
+  }
+
+  // Pure-of-inputs: caller passes already-windowed history events.
+  //   events       — today's events
+  //   historyEvents — past events (NOT including today) within the
+  //                   6-day window. Caller responsible for windowing.
+  // Returns { todayRedCount, historyRedCount, totalInWindow, soften }.
+  function check41to60Softening(events, historyEvents, todayKey) {
+    const todayRedCount = (events || []).reduce(
+      (n, e) => n + (isRedZone(e.duration) ? 1 : 0), 0);
+    // Filter history to the trailing 7-day window ending today.
+    // "Past 7 days including today" = today + 6 prior calendar days.
+    const historyRedCount = (historyEvents || []).reduce((n, e) => {
+      if (todayKey && e && e.date) {
+        const daysBack = daysBetween(e.date, todayKey);
+        const inWindow = daysBack >= 1 && daysBack <= 6;
+        if (!inWindow) return n;
+      }
+      return n + (isRedZone(e.duration) ? 1 : 0);
+    }, 0);
+    const totalInWindow = todayRedCount + historyRedCount;
+    return {
+      todayRedCount,
+      historyRedCount,
+      totalInWindow,
+      soften: todayRedCount === 1 && totalInWindow === 1,
+    };
+  }
+
+  function classifyDayWithSoftening(events, historyEvents, todayKey) {
+    const base = classifyDay(events);
+    if (base.status !== STATUS.FAILURE) return base;
+
+    const hasRed = (events || []).some(e => isRedZone(e.duration));
+    if (!hasRed) return base;
+
+    // Other failure triggers take precedence over softening.
+    const durations = (events || []).map(e => Math.floor(e.duration));
+    const total = durations.reduce((a, b) => a + b, 0);
+    const worn = MINUTES_IN_DAY - total;
+    const count = (events || []).length;
+    const amberCount = durations.filter(isAmber).length;
+    const exactly5NoShort = count === 5 && durations.every(d => d > SHORT_EVENT_MAX);
+    const hasExtended = durations.some(d => d > RED_MAX);
+    if (worn < WORN_MINIMUM || count > 5 || exactly5NoShort || hasExtended || amberCount >= 3) {
+      return base;
+    }
+
+    const ck = check41to60Softening(events, historyEvents, todayKey);
+    if (ck.soften) {
+      return {
+        status: STATUS.IMPERFECT,
+        reason: 'Reason: one-off 41–60 min removal (≤ 1 in past 7 days).',
+      };
+    }
+    return base;
   }
 
   /* ----------------------------------------------------------
@@ -470,10 +570,13 @@
     SHORT_EVENT_MAX,
     ZONE, STATUS,
     zoneOf,
+    isRedZone,
     breachExcess,
     totalRemovalMinutes,
     wornMinutes,
     classifyDay,
+    classifyDayWithSoftening,
+    check41to60Softening,
     forecast,
     perfectBlockedReason,
     maxNextRemoval,

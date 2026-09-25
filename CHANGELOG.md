@@ -5,6 +5,60 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0] - 2026-09-22
+
+### Changed
+
+- **Failure softening for one-off 41–60-min removals.** A day
+  with exactly one event in the red zone (41–60 min) — where
+  that one event is the only such removal in the trailing 7-day
+  window (today + 6 prior days) — is classified as **Imperfect**
+  instead of Failure. The softening only fires when the red zone
+  is the *sole* failure trigger: other triggers (worn < 22h,
+  extended > 60 min, > 5 removals, 5 removals with no ≤ 10 min,
+  3+ amber removals) keep their full effect.
+    - **New `Rules.classifyDayWithSoftening(events, history, todayKey)`** —
+      the softening-aware classifier. The spec-strict `classifyDay`
+      is unchanged.
+    - **`Rules.check41to60Softening(events, history, todayKey)`** —
+      returns `{ todayRedCount, historyRedCount, totalInWindow,
+      soften }` for inspection / testing.
+    - **`Rules.isRedZone(duration)`** — utility predicate
+      (41 ≤ duration ≤ 60).
+    - **`Store.historyEventsExcludingToday(todayKey, days)`** —
+      events from the prior `days` calendar days, in the user's
+      timezone.
+    - Softening wires through every view that displays status:
+      Today (forecast), History (row badges), Day detail (header),
+      Insights (distribution + streaks), next-removal-max
+      planning, multi-removal planning.
+  **Spec deviation (intentional):** spec §10 #2 makes "any single
+  removal is 41–60 min" an unconditional Failure. We loosen this
+  one trigger. Documented in `RULESHEET.md` under "One-off 41–60
+  min softening".
+
+- **Next-removal card redesigned.** Replaces the previous
+  "MAX X MIN" + separate "IF YOU NEED N MORE REMOVALS" card
+  with a single inline list showing all valid (count, per-removal
+  max) pairs at once:
+    - "1 more removal · 35 MIN"
+    - "2 more removals · 30 MIN EACH"
+    - "3 more removals · 28 MIN EACH"
+  The card also handles three terminal states:
+    - **Failure is locked in** — replaces the list entirely.
+    - **No more removals today** (at cap for target).
+    - **No safe next removal** (today's events block any path to
+      the chosen target).
+  Pluralisation: `1 more removal` (singular) uses `MIN`; `2+ more
+  removals` uses `MIN EACH`. The "TOTAL LEFT" subtext moves under
+  the list and adds `max single removal N MIN` so users see both
+  the per-count maxes and the absolute single-removal max.
+
+### Notes
+
+- 22 new softening tests + 14 new capacity-list tests.
+- Total tests: **275 passing**.
+
 ## [1.5.1] - 2026-09-22
 
 ### Changed
