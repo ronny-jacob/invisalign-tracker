@@ -198,17 +198,50 @@
       throw new Error('Invalid input. Enter a whole number of minutes.');
     }
     opts = opts || {};
+    if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      throw new Error('Invalid date. Use YYYY-MM-DD.');
+    }
     const existing = eventsForDate(date);
     const now = Date.now();
-    // Manual entry has no real start/end, so we approximate the window
-    // as "the most recent N minutes ending now." A future timer feature
-    // can overwrite these with the actual recorded timestamps.
-    const endTs = opts.endTs != null ? opts.endTs : now;
-    const startTs = opts.startTs != null ? opts.startTs : (endTs - duration * 60_000);
+    const isToday = date === todayKey();
+
+    // Tray assignment: prefer explicit opts.tray; otherwise infer from
+    // the day. Today uses the current tray (unchanged behaviour).
+    // Past dates use trayForDate() so backfilled removals slot into
+    // the right tray band.
+    let tray;
+    if (opts.tray !== undefined) tray = opts.tray;
+    else if (isToday) tray = state.settings.currentTray;
+    else tray = trayForDate(date);
+
+    // Start/end timestamps:
+    //   - timer path: opts.startTs + opts.endTs are exact (real ms).
+    //   - today, manual: endTs ≈ now, startTs ≈ endTs − duration.
+    //   - past day, manual with startTs: use it; endTs = startTs + duration.
+    //   - past day, manual without startTs: default to local noon of that
+    //     day, offset by 1 min per existing event so two backfilled
+    //     events on the same day don't overlap visually.
+    let startTs, endTs;
+    if (opts.startTs != null && opts.endTs != null) {
+      startTs = opts.startTs;
+      endTs = opts.endTs;
+    } else if (isToday) {
+      endTs = opts.endTs != null ? opts.endTs : now;
+      startTs = opts.startTs != null ? opts.startTs : (endTs - duration * 60_000);
+    } else {
+      if (opts.startTs != null) {
+        startTs = opts.startTs;
+        endTs = startTs + duration * 60_000;
+      } else {
+        startTs = nowOnDay(date, existing.length);
+        endTs = startTs + duration * 60_000;
+      }
+    }
+
     const event = {
       id: newId(),
       date,
-      tray: state.settings.currentTray,
+      tray,
       eventNumber: existing.length + 1,
       duration,
       startTs,
@@ -220,8 +253,8 @@
     state.events.push(event);
     // If this is the first event of this tray, record its date as the
     // tray start. Best-effort: user can correct in Settings.
-    if (!state.settings.trayStarts[String(event.tray)]) {
-      state.settings.trayStarts[String(event.tray)] = event.date;
+    if (tray != null && !state.settings.trayStarts[String(tray)]) {
+      state.settings.trayStarts[String(tray)] = event.date;
     }
     save(state);
     emit();
@@ -336,6 +369,36 @@
       for (const e of eventsForDate(d)) out.push(e);
     }
     return out;
+  }
+
+  // Returns the tray number that was active on a given day, or null
+  // if the date is before any recorded tray start. Used to assign
+  // the correct tray to backfilled removals so History rows and
+  // tray grouping stay accurate.
+  function trayForDate(dateKey) {
+    if (!dateKey) return null;
+    const starts = state.settings.trayStarts || {};
+    const entries = Object.keys(starts)
+      .map(k => ({ tray: Number(k), date: starts[k] }))
+      .filter(e => Number.isFinite(e.tray) && e.date);
+    if (entries.length === 0) return null;
+    entries.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.tray - b.tray));
+    let active = null;
+    for (const e of entries) {
+      if (e.date <= dateKey) active = e.tray;
+      else break;
+    }
+    return active;
+  }
+
+  // Local noon epoch ms for a given day key, plus optional offset.
+  // Backfilled events use this as a sensible default when the user
+  // doesn't provide an approximate time.
+  function nowOnDay(dateKey, offsetMinutes) {
+    const [y, m, d] = dateKey.split('-').map(Number);
+    const dt = new Date(y, m - 1, d, 12, 0, 0, 0);
+    if (offsetMinutes) dt.setMinutes(dt.getMinutes() + offsetMinutes);
+    return dt.getTime();
   }
 
   function daysBetween(a, b) {
@@ -490,6 +553,7 @@
     todayKey,
     eventsForDate, allDatesSorted,
     historyEventsExcludingToday,
+    trayForDate, nowOnDay,
     addRemoval, undoLastRemoval, editRemoval, deleteRemoval,
     updateSettings, setTrayStartDate, clearAll,
     traySchedule, trayStartsKnown,

@@ -484,15 +484,38 @@
         `${R.formatMinutesShort(summary.worn)} worn`,
       ];
       if (last) subParts.push(' · ', `last at ${formatClock(last.createdTs)}`);
-      const row = el('button', { class: 'history-row', type: 'button' }, [
+      const addBtn = el('button', {
+        class: 'history-row__add',
+        type: 'button',
+        'aria-label': `Add removal for ${formatDayLong(d)}`,
+        title: 'Add removal for this day',
+      }, '+');
+      addBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openAddSheet(d);
+      });
+
+      const row = el('div', {
+        class: 'history-row',
+        role: 'button',
+        tabindex: '0',
+        'aria-label': `${formatDayLong(d)}, ${badgeText(summary.status)}`,
+      }, [
         el('div', null, [
           el('div', { class: 'history-row__date' }, formatDayLong(d)),
           el('div', { class: 'history-row__sub' }, subParts),
         ]),
         el('div', { class: 'history-row__badge', dataset: { status: summary.status } }, badgeText(summary.status)),
+        addBtn,
         el('div', { class: 'history-row__chev', 'aria-hidden': 'true' }, '›'),
       ]);
       row.addEventListener('click', () => go('day', { dayKey: d }));
+      row.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          go('day', { dayKey: d });
+        }
+      });
       list.appendChild(row);
     }
   }
@@ -549,9 +572,17 @@
     }
     const trayKeys = Object.keys(trayCounts);
     let trayLabel = null;
-    if (trayKeys.length === 1) trayLabel = `Tray ${trayKeys[0]}`;
-    else if (trayKeys.length > 1) trayLabel = `Tray ${trayKeys.sort((a, b) => a - b).join(' + ')}`;
+    if (trayKeys.length === 1) {
+      const k = trayKeys[0];
+      trayLabel = k === 'null' ? 'No tray' : `Tray ${k}`;
+    }
+    else if (trayKeys.length > 1) {
+      const sorted = trayKeys.filter(k => k !== 'null').sort((a, b) => a - b);
+      if (trayKeys.includes('null')) sorted.push('—');
+      trayLabel = sorted.length > 1 ? `Tray ${sorted.join(' + ')}` : `Tray ${sorted[0]}`;
+    }
     const isPastTray = trayKeys.length === 1
+      && trayKeys[0] !== 'null'
       && Number(trayKeys[0]) !== Store.state.settings.currentTray;
 
     const head = el('div', { class: 'day-header' }, [
@@ -561,6 +592,11 @@
           class: 'day-header__tray',
           dataset: { state: isPastTray ? 'past' : 'current' },
         }, trayLabel) : null,
+        el('button', {
+          class: 'day-header__add',
+          type: 'button',
+          'aria-label': `Add removal for ${formatDayLong(dayKey)}`,
+        }, '+ Add'),
       ]),
       el('div', { class: 'day-header__status', dataset: { status: summary.status } },
         badgeText(summary.status)),
@@ -591,9 +627,18 @@
       ]),
     ]);
     root.appendChild(head);
+    const headerAddBtn = head.querySelector('.day-header__add');
+    if (headerAddBtn) headerAddBtn.addEventListener('click', () => openAddSheet(dayKey));
 
     if (events.length === 0) {
-      root.appendChild(buildEmpty('No removals', 'This day has no removals logged.'));
+      const empty = buildEmpty('No removals', 'This day has no removals logged.');
+      const addCta = el('button', {
+        class: 'day-empty__add btn btn--primary',
+        type: 'button',
+      }, 'Add removal');
+      addCta.addEventListener('click', () => openAddSheet(dayKey));
+      empty.appendChild(addCta);
+      root.appendChild(empty);
       return;
     }
 
@@ -1607,6 +1652,10 @@
     root.appendChild(el('p', null,
       'The day classifies as if no further removals were added. Recomputed on every change.'));
 
+    root.appendChild(el('h3', null, 'Backfilling past days'));
+    root.appendChild(el('p', null,
+      'From any History row or any Day Detail, you can log a removal for a past day. The Add sheet offers an optional Approximate time (HH:MM); leave it blank to default to midday of that day. Two backfilled events on the same day are offset by one minute so they don’t overlap visually. Backfilled events are tagged with the tray that was active on that date; if the date is before any recorded tray, they store null and show as “No tray”. They classify the day using the same rules as live events, including the 41–60 softening above.'));
+
     root.appendChild(el('h3', null, 'Next-removal max'));
     root.appendChild(el('p', null, [
       'The largest single-removal duration that keeps the day capable of a chosen target (',
@@ -1666,10 +1715,21 @@
     if (lastFocused && lastFocused.focus) lastFocused.focus({ preventScroll: true });
   }
 
-  function openAddSheet() {
+  function openAddSheet(dayKey) {
     const sheet = $('#addSheet');
     $('#addInput').value = '';
     $('#addError').hidden = true;
+    const targetDay = dayKey || Store.todayKey();
+    const isToday = targetDay === Store.todayKey();
+    sheet.dataset.dayKey = targetDay;
+    const timeWrap = $('#addTimeWrap');
+    if (timeWrap) timeWrap.hidden = isToday;
+    if (!isToday) {
+      const timeInput = $('#addTime');
+      if (timeInput) timeInput.value = '';
+    }
+    $('#addTitle').textContent = isToday ? 'Add Removal' : `Add Removal · ${formatDayShort(targetDay)}`;
+    $('#addPrompt').textContent = isToday ? 'How many minutes?' : 'How many minutes? (We’ll assume midday unless you set a time.)';
     openSheet(sheet);
   }
   function openEditSheet(event) {
@@ -1718,7 +1778,7 @@
     $$('.tab').forEach(t => t.addEventListener('click', () => go(t.dataset.screen)));
 
     // Today add button
-    $('#addBtn').addEventListener('click', openAddSheet);
+    $('#addBtn').addEventListener('click', () => openAddSheet());
 
     // Start timer button
     $('#startTimerBtn').addEventListener('click', handleStartTimer);
@@ -1727,6 +1787,9 @@
     $('#addSheet').querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', () => closeSheet($('#addSheet'))));
     $('#addForm').addEventListener('submit', (e) => {
       e.preventDefault();
+      const sheet = $('#addSheet');
+      const dayKey = sheet.dataset.dayKey || Store.todayKey();
+      const isToday = dayKey === Store.todayKey();
       const raw = $('#addInput').value.trim();
       const errEl = $('#addError');
       errEl.hidden = true;
@@ -1741,11 +1804,27 @@
         errEl.hidden = false;
         return;
       }
+
+      // Build opts: tray + optional startTs for backfill days.
+      const opts = {};
+      if (!isToday) {
+        const tray = Store.trayForDate(dayKey);
+        if (tray != null) opts.tray = tray;
+        const timeVal = $('#addTime').value;
+        if (timeVal && /^\d{2}:\d{2}$/.test(timeVal)) {
+          const [hh, mm] = timeVal.split(':').map(Number);
+          const [y, mo, d] = dayKey.split('-').map(Number);
+          const startTs = new Date(y, mo - 1, d, hh, mm, 0, 0).getTime();
+          opts.startTs = startTs;
+        }
+      }
+
       try {
-        const ev = Store.addRemoval(Store.todayKey(), dur);
-        closeSheet($('#addSheet'));
+        const ev = Store.addRemoval(dayKey, dur, opts);
+        closeSheet(sheet);
+        const undoTarget = dayKey;
         showToast(`Added ${ev.duration} min · ${formatRelative(ev.createdTs)}`, 'Undo', () => {
-          Store.undoLastRemoval(Store.todayKey());
+          Store.undoLastRemoval(undoTarget);
           showToast('Undone.');
         });
       } catch (err) {

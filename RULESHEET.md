@@ -47,6 +47,18 @@ If no failure and worn ≥ 22 h:
 The day classifies as if no further removals were added. Recomputed
 on every change.
 
+## Backfilling past days
+
+From any History row or any Day Detail, you can log a removal for
+a past day. The Add sheet offers an optional **Approximate time**
+(`HH:MM`); leave it blank to default to midday of that day. Two
+backfilled events on the same day are offset by one minute so they
+don't overlap visually. Backfilled events are tagged with the tray
+that was active on that date (via `Store.trayForDate(dayKey)`); if
+the date is before any recorded tray, they store `tray: null` and
+display as **"No tray"**. They classify the day using the same
+rules as live events, including the v1.6.0 softening above.
+
 ## Next-removal max
 
 For a target outcome (`perfect` / `near-perfect` / `avoid-failure`),

@@ -119,7 +119,7 @@
   <div class="sheet__panel" role="dialog" aria-labelledby="addTitle">
     <div class="sheet__grabber" aria-hidden="true"></div>
     <h2 class="sheet__title" id="addTitle">Add Removal</h2>
-    <p class="sheet__prompt">How many minutes?</p>
+    <p class="sheet__prompt" id="addPrompt">How many minutes?</p>
     <form id="addForm" autocomplete="off" novalidate>
       <input
         id="addInput"
@@ -130,6 +130,15 @@
         placeholder="e.g. 35"
         aria-label="Minutes"
         autofocus />
+      <div class="add-time-wrap" id="addTimeWrap" hidden>
+        <label class="add-input__label" for="addTime">Approximate time (optional)</label>
+        <input
+          id="addTime"
+          class="add-input add-input--time"
+          type="time"
+          aria-label="Approximate time" />
+        <p class="add-hint">Leave blank to use midday on that day.</p>
+      </div>
       <p class="add-error" id="addError" hidden></p>
       <div class="sheet__actions">
         <button type="button" class="btn btn--ghost" data-close>Cancel</button>

@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0] - 2026-10-06
+
+### Added
+
+- **Backfill tray-out times from History.** When you missed logging on a particular day, you can now add a removal for any past date in two places:
+  - **History row + button.** A small "+" icon appears next to the status badge of every History row. Click it to open the Add sheet prefilled with that day.
+  - **Day Detail "+ Add."** A primary "+ Add" button sits in the day header, and a CTA sits inside the empty-state for days with no removals.
+
+- **Optional Approximate time (HH:MM).** The Add sheet now includes an Approximate time field when the target day is not today. Leave it blank to default to midday of that day; supply a time to anchor the start of the removal window. Two backfilled events on the same day are offset by one minute so they don't overlap visually.
+
+- **Tray inference for backfills.** New `Store.trayForDate(dayKey)` returns the tray that was active on a given date, so backfilled events slot into the correct tray band. Pre-tray dates store `tray: null` and display as "No tray" in Day Detail headers.
+
+### Changed
+
+- `Store.addRemoval(date, duration, opts?)` extended with `opts.tray` and `opts.startTs`/`opts.endTs` for backfill. Past dates default to local noon of that day (offset by one minute per existing event) when no explicit time is given. Today path unchanged.
+- `Store.nowOnDay(dateKey, offsetMinutes?)` is exposed as a helper for the noon default.
+- The History row markup changed from a `<button>` to a `<div role="button">` so the nested "+" action is a real `<button>`. Keyboard activation (Enter / Space) navigates to Day Detail; the "+" button has its own focusable, accessible label.
+- The Day Detail header tray label now reads "No tray" instead of "Tray null" when an event has `tray: null`.
+
+### Notes
+
+- 38 new tests in `backfill.js` cover: helpers, date/tray inference, two-event offsets, explicit time, pre-tray `null`, the unchanged Today path, History "+" UI (opens sheet, sets dayKey, shows time field, does NOT navigate), Today Add (hides time field), submit creates event, Day Detail "+Add" header CTA, backfilled status under softening, undo/edit/delete on backfilled events, and "No tray" display. Rules-only suite remains at **75 passing**. Effective total: **75 + 38 = 113 passing**.
+
 ## [1.6.0] - 2026-09-22
 
 ### Changed
