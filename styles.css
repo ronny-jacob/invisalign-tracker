@@ -638,22 +638,6 @@ a { color: var(--accent); }
 
 .history-row__chev { color: var(--fg-tertiary); font-size: 18px; }
 
-.history-row__add {
-  width: 32px; height: 32px;
-  display: inline-flex; align-items: center; justify-content: center;
-  border: 1px solid var(--border);
-  background: var(--bg-elev-2);
-  color: var(--green);
-  border-radius: 999px;
-  font-size: 18px;
-  font-weight: 700;
-  line-height: 1;
-  cursor: pointer;
-  transition: background-color .15s ease, transform .15s ease;
-}
-.history-row__add:hover { background: var(--bg-elev-3); }
-.history-row__add:active { transform: scale(0.94); }
-
 /* ---------- Day detail ---------- */
 
 .back-btn {

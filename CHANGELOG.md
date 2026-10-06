@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.1] - 2026-10-06
+
+### Changed
+
+- **History rows no longer render a "+" button.** The Add entry point lives only in Day Detail now — open a day from History, then tap "+ Add" in the header (or the empty-state CTA if the day has no events). This tightens the History list to a single tap-to-open action.
+
+### Removed
+
+- `.history-row__add` styling (the small circular "+" icon next to the status badge).
+
+### Notes
+
+- `backfill.js` updated: 35 assertions passing (down from 38; removed the three History "+" open/click-doesn't-navigate/has-dayKey checks, added a "no + button" assertion and a "History row click navigates to Day Detail" regression). Rules suite unchanged. Effective total: **75 + 35 = 110 passing**.
+
 ## [1.7.0] - 2026-10-06
 
 ### Added

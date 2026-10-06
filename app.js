@@ -484,17 +484,6 @@
         `${R.formatMinutesShort(summary.worn)} worn`,
       ];
       if (last) subParts.push(' · ', `last at ${formatClock(last.createdTs)}`);
-      const addBtn = el('button', {
-        class: 'history-row__add',
-        type: 'button',
-        'aria-label': `Add removal for ${formatDayLong(d)}`,
-        title: 'Add removal for this day',
-      }, '+');
-      addBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        openAddSheet(d);
-      });
-
       const row = el('div', {
         class: 'history-row',
         role: 'button',
@@ -506,7 +495,6 @@
           el('div', { class: 'history-row__sub' }, subParts),
         ]),
         el('div', { class: 'history-row__badge', dataset: { status: summary.status } }, badgeText(summary.status)),
-        addBtn,
         el('div', { class: 'history-row__chev', 'aria-hidden': 'true' }, '›'),
       ]);
       row.addEventListener('click', () => go('day', { dayKey: d }));
