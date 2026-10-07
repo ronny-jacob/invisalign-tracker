@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.4] - 2026-10-06
+
+### Reverted
+
+- **The v1.7.4 release was reverted on 2026-10-07** because the Android edge-swipe-back behaviour did not work as expected for some users. The previous behaviour (in v1.7.3) is restored. The v1.7.4 tag and GitHub release were deleted; the reverted commit is preserved in the history as `Revert "Android back-gesture navigates within app (v1.7.4)"`.
+
 ## [1.7.3] - 2026-10-06
 
 ### Fixed
