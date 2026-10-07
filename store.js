@@ -282,6 +282,13 @@
     if (from === newDuration) return ev;
     ev.editHistory.push({ ts: Date.now(), from, to: newDuration });
     ev.duration = newDuration;
+    // Keep the start–end window consistent with the new duration.
+    // For backfilled events the startTs was set to noon of the day;
+    // without this, day-detail rows would show a stale endTs and
+    // the displayed "X – Y min" range would be wrong.
+    if (ev.startTs != null) {
+      ev.endTs = ev.startTs + newDuration * 60_000;
+    }
     ev.editedTs = Date.now();
     save(state);
     emit();
@@ -380,7 +387,9 @@
     const starts = state.settings.trayStarts || {};
     const entries = Object.keys(starts)
       .map(k => ({ tray: Number(k), date: starts[k] }))
-      .filter(e => Number.isFinite(e.tray) && e.date);
+      // Only integer tray numbers are valid; defensive against
+      // corrupted localStorage with fractional or NaN keys.
+      .filter(e => Number.isInteger(e.tray) && e.tray > 0 && e.date);
     if (entries.length === 0) return null;
     entries.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.tray - b.tray));
     let active = null;

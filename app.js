@@ -1799,11 +1799,22 @@
         const tray = Store.trayForDate(dayKey);
         if (tray != null) opts.tray = tray;
         const timeVal = $('#addTime').value;
-        if (timeVal && /^\d{2}:\d{2}$/.test(timeVal)) {
-          const [hh, mm] = timeVal.split(':').map(Number);
-          const [y, mo, d] = dayKey.split('-').map(Number);
-          const startTs = new Date(y, mo - 1, d, hh, mm, 0, 0).getTime();
-          opts.startTs = startTs;
+        if (timeVal) {
+          // The browser's <input type="time"> already constrains the
+          // format to HH:MM, but JS Date silently rolls over for
+          // out-of-range values (e.g. "24:00" becomes next-day 00:00,
+          // "12:60" becomes 13:00). Reject anything outside 0-23 / 0-59
+          // so the event can't be stored with a startTs on a different
+          // calendar day than the one the user picked.
+          const m = /^(\d{2}):(\d{2})$/.exec(timeVal);
+          if (m) {
+            const hh = Number(m[1]);
+            const mm = Number(m[2]);
+            if (hh >= 0 && hh <= 23 && mm >= 0 && mm <= 59) {
+              const [y, mo, d] = dayKey.split('-').map(Number);
+              opts.startTs = new Date(y, mo - 1, d, hh, mm, 0, 0).getTime();
+            }
+          }
         }
       }
 

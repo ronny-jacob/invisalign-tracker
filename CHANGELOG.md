@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.2] - 2026-10-06
+
+### Fixed
+
+- **Backfill time field accepted out-of-range values like "24:00" and "12:60".** The HTML5 `<input type="time">` parser would normally block these, but the JS path used a regex that only checked the two-digit shape. JS `Date` then silently rolled "24:00" forward to next-day 00:00 and "12:60" to 13:00, so the event could be stored with a `startTs` on a different calendar day than the one the user picked. The Add sheet submit now validates `hh ∈ [0, 23]` and `mm ∈ [0, 59]` and falls back to midday (with the existing-events offset) when the value is out of range. The 24:00 / 12:60 path now writes the event to the same day the user selected.
+
+- **Editing a backfilled event left `endTs` stale.** When the user changed the duration of a backfilled event (e.g. 35 min → 45 min), only `duration` was updated. The stored `startTs` (noon of that day) and `endTs` (noon + 35 min) were unchanged, so the day-detail range display showed a wrong window. `Store.editRemoval` now adjusts `endTs = startTs + newDuration * 60_000` whenever a `startTs` is present. Events without a `startTs` (legacy records) are unchanged.
+
+- **`Store.trayForDate` accepted non-integer tray keys.** A corrupted `trayStarts` map (e.g. with a fractional `"1.5"` or non-numeric `"abc"` key from manual localStorage edits) could produce a non-integer tray number. The helper now filters to `Number.isInteger(t) && t > 0`, so only valid tray numbers are considered.
+
+### Tests
+
+- 7 new regression tests in `backfill.js`:
+  - "24:00" rejected: event not on wrong day
+  - "12:60" rejected: fallback to noon
+  - "23:30" honoured
+  - Edit backfilled event: `endTs - startTs` matches new duration
+  - Edit backfilled event: `startTs` preserved (noon of day)
+  - `trayForDate` ignores fractional tray keys
+  - `trayForDate` ignores `NaN` tray keys
+
+- backfill.js total: **42 passing** (was 35). Rules suite unchanged at **75 passing**. Effective total: **75 + 42 = 117 passing**.
+
 ## [1.7.1] - 2026-10-06
 
 ### Changed
