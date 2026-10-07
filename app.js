@@ -1691,6 +1691,9 @@
     lastFocused = document.activeElement;
     sheet.hidden = false;
     sheet.setAttribute('aria-hidden', 'false');
+    // Lock body scroll while a sheet is open. The sheet panel itself
+    // never scrolls off-screen this way, even on short viewports.
+    document.body.classList.add('sheet-open');
     requestAnimationFrame(() => {
       const f = sheet.querySelector('input, select, textarea, button');
       if (f) f.focus({ preventScroll: true });
@@ -1700,6 +1703,11 @@
   function closeSheet(sheet) {
     sheet.hidden = true;
     sheet.setAttribute('aria-hidden', 'true');
+    // Only release the lock if no other sheet is still visible
+    // (e.g. confirm sheet still open after Edit is closed).
+    if (!document.querySelector('.sheet:not([hidden])')) {
+      document.body.classList.remove('sheet-open');
+    }
     if (lastFocused && lastFocused.focus) lastFocused.focus({ preventScroll: true });
   }
 

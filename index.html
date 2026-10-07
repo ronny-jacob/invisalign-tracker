@@ -45,7 +45,6 @@
         <span>Start Timer</span>
       </button>
     </div>
-    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
   </section>
 
   <!-- History -->
@@ -205,6 +204,10 @@
   <button class="back-btn" id="rulesBackBtn" aria-label="Back">‹ Back</button>
   <div id="rulesContent" class="rules-content"></div>
 </section>
+
+<!-- Toast: lives at body level so it stays visible no matter which
+     screen is active (Today, Day Detail, Insights, etc.). -->
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
 <script src="rules.js"></script>
 <script src="store.js"></script>

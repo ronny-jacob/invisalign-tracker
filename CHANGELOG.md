@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.3] - 2026-10-06
+
+### Fixed
+
+- **Toast was invisible on every screen except Today.** The `<div id="toast">` was nested inside `<section id="screen-today">`. Since `.screen { display: none }` and only `.screen--active { display: block }`, the toast was hidden whenever the user was on Day Detail, Insights, Settings, etc. Backfilling a removal from Day Detail would show no feedback because the success toast was rendering into a hidden parent. The toast now lives at body level, just before the scripts, so it stays visible regardless of which screen is active.
+
+- **Body scroll wasn't locked while a sheet was open.** Tapping the underlying screen could scroll content behind the dimmed backdrop. `openSheet` now adds `body.sheet-open` and `closeSheet` removes it (only when no other sheet is still visible, so the Edit → Confirm flow keeps the lock). `.sheet-open` is just `body { overflow: hidden; }`.
+
+### Tests
+
+- 4 new regression tests in `backfill.js`:
+  - Toast is at body level, not inside any `.screen`
+  - Toast remains visible from Day Detail after a backfill
+  - Toast text mentions the added duration
+  - `body.sheet-open` toggled correctly across open / close
+
+- backfill.js total: **46 passing** (was 42). Rules suite unchanged at **75 passing**. Effective total: **121 passing**.
+
 ## [1.7.2] - 2026-10-06
 
 ### Fixed
