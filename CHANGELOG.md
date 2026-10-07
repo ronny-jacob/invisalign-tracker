@@ -5,20 +5,6 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.7.4] - 2026-10-06
-
-### Fixed
-
-- **Android edge-swipe-back closed the app instead of navigating within it.** The app never wrote to the browser history, so the system's back gesture found no history to go back to and Chrome closed the tab (or the PWA). Every screen change now pushes a `history.state` entry, and a `popstate` listener renders the screen for the previous entry. The in-app ‹ Back button on Day Detail and Rules also uses `history.back()` so the gesture and the button share one path. When the user swipes back past the first entry, the handler reseeds `history.state = { appScreen: 'today' }` and renders Today instead of leaving a blank page.
-
-### Notes
-
-- Implementation split `go()` into a renderer (`renderScreen`) + a navigator (`go`) that pushes state. `go()` now wraps `pushState` + `renderScreen`. Boot checks `history.state` and either renders that screen (refresh on Day Detail / Rules) or seeds `{ appScreen: 'today' }` via `replaceState`. The popstate handler reads `e.state` first (matches real-browser behaviour) and falls back to `history.state` if the event has no state.
-
-- 9 new tests in `backfill.js` cover: `go()` pushes, state shape, dispatched popstate restores History / Today / null-fallback, day back button invokes `history.back()`, rules back button invokes `history.back()`. Total: **56 passing** (was 46). Rules suite unchanged at **75 passing**. Effective total: **131 passing**.
-
-- Manual smoke test on Android Chrome with the PWA installed: open Today → tap History tab → tap a row → swipe back from the left edge → lands on History. Swipe back again → lands on Today. Swipe back once more → still on Today, the app does not close (the system back gesture only closes when there's literally no history left to pop, which now never happens after the first navigation).
-
 ## [1.7.3] - 2026-10-06
 
 ### Fixed

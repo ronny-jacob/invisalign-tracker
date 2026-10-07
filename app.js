@@ -141,11 +141,7 @@
   let currentScreen = 'today';
   let currentDayKey = null;
 
-  // Render the named screen and update chrome. Does NOT push a
-  // history entry — that's `go()`. Used both by go() and by the
-  // popstate listener so that browser back/forward and Android
-  // edge-swipe-back navigate the app instead of closing it.
-  function renderScreen(screen, params) {
+  function go(screen, params) {
     currentScreen = screen;
     if (params && params.dayKey) currentDayKey = params.dayKey;
     if (screen !== 'day') currentDayKey = null;
@@ -178,38 +174,6 @@
     // Scroll to top on screen change.
     try { window.scrollTo({ top: 0, behavior: 'instant' }); } catch (e) { /* jsdom */ }
   }
-
-  // Navigate to a screen and push a history entry so that the
-  // browser's back gesture (and the Android edge-swipe-back) goes
-  // to the previous screen instead of closing the app.
-  function go(screen, params) {
-    history.pushState({ appScreen: screen, params: params || null }, '');
-    renderScreen(screen, params);
-  }
-
-  // Listen for back/forward. The browser has already moved the
-  // history cursor; we just need to render whatever history.state
-  // points to. When there's no app state (e.g. back past the first
-  // entry) we fall back to Today so the user lands on the home
-  // screen instead of seeing a blank page.
-  window.addEventListener('popstate', (e) => {
-    // The browser sets `event.state` to the state at the new cursor
-    // position. For a back past the first entry this is null. If the
-    // event has no state at all, fall back to history.state. This
-    // matches real-browser behaviour.
-    let s;
-    if (e && 'state' in e) {
-      s = e.state;
-    } else {
-      s = history.state;
-    }
-    if (s && s.appScreen) {
-      renderScreen(s.appScreen, s.params);
-    } else {
-      history.replaceState({ appScreen: 'today', params: null }, '');
-      renderScreen('today', null);
-    }
-  });
 
   /* ============================================================
    * Today
@@ -1917,10 +1881,8 @@
       });
     });
 
-    // Day-detail back — pop history so the browser's edge-swipe
-    // and the in-app back button both go to the same previous
-    // screen via the popstate handler.
-    $('#dayBackBtn').addEventListener('click', () => history.back());
+    // Day-detail back
+    $('#dayBackBtn').addEventListener('click', () => go('history'));
 
     // Initial theme
     applyTheme(Store.state.settings.theme || 'system');
@@ -1947,23 +1909,14 @@
   // Boot
   document.addEventListener('DOMContentLoaded', () => {
     wire();
-    // Rules screen back button — pop history (see dayBackBtn).
+    // Rules screen back button
     $('#rulesBackBtn').addEventListener('click', () => {
-      history.back();
+      go('settings');
     });
     if (!Store.state.settings.onboarded) {
       startOnboarding();
     } else {
-      // Honour the URL's history.state on boot so a refresh on
-      // Day Detail or Rules keeps the user where they were. If
-      // there's no app state yet, seed it with Today.
-      const s = history.state;
-      if (s && s.appScreen) {
-        renderScreen(s.appScreen, s.params);
-      } else {
-        history.replaceState({ appScreen: 'today', params: null }, '');
-        renderScreen('today', null);
-      }
+      go('today');
       // If a timer was running, resume the live tick
       if (Store.getTimer().running) startTimerTick();
     }
