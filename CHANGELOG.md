@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.5] - 2026-10-07
+
+### Fixed
+
+- **Stray duplicate `.sheet {` line in `styles.css` broke rendering across the whole app.** The v1.7.3 scroll-lock edit accidentally introduced an unclosed `.sheet {` block just above the real `.sheet` rule (306 opening braces vs 305 closing). Everything after that line was swallowed into the malformed block, so later rules — including `.tabbar`, `.onboarding`, and all screen styles — were dropped by the CSS parser. On the live site this made the bottom tab bar render in the wrong position (static instead of fixed) and left other elements unstyled. The stray line has been removed; braces now balance at 305/305 and all screens verify clean (tab bar fixed at the bottom, no overflow or clipping anomalies).
+
 ## [1.7.4] - 2026-10-06
 
 ### Reverted
