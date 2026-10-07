@@ -140,8 +140,33 @@
 
   let currentScreen = 'today';
   let currentDayKey = null;
+  // Number of screen entries the app has pushed. Lives in each history
+  // entry (`state.depth`) so it survives reloads; this mirror is just
+  // the fast path for the in-app back buttons.
+  let navDepth = 0;
+  // Sheet ids currently represented by history marker entries
+  // (outermost first; last = innermost open sheet).
+  const historySheets = [];
+  // Marker entries spliced by closeSheet whose history.back() hasn't
+  // landed yet. Same-tick chains (confirm over edit) queue extra
+  // traversals from the popstate handler instead of back-to-back
+  // history.back() calls, so engines that batch same-tick traversals
+  // can't drop one.
+  let pendingMarkerBacks = 0;
+  // Navigation requested while marker traversals are still in flight
+  // (e.g. Delete All Data closes its confirm sheet and goes to Today
+  // in the same tick). Pushing immediately would either cancel the
+  // queued traversal or get undone by its -1, so the push is deferred
+  // until the pending back lands; the screen still renders at once.
+  let queuedNav = null;
 
-  function go(screen, params) {
+  function makeState(screen, params, extra) {
+    const s = { app: true, screen: screen, params: params || null, depth: navDepth };
+    if (extra) Object.assign(s, extra);
+    return s;
+  }
+
+  function renderScreen(screen, params) {
     currentScreen = screen;
     if (params && params.dayKey) currentDayKey = params.dayKey;
     if (screen !== 'day') currentDayKey = null;
@@ -174,6 +199,113 @@
     // Scroll to top on screen change.
     try { window.scrollTo({ top: 0, behavior: 'instant' }); } catch (e) { /* jsdom */ }
   }
+
+  function samePlace(screen, params) {
+    if (screen !== currentScreen) return false;
+    if (screen === 'day') return (params && params.dayKey) === currentDayKey;
+    return true;
+  }
+
+  function go(screen, params) {
+    if (samePlace(screen, params)) {
+      // Re-tapping the current tab / row: re-render only. Pushing a
+      // duplicate entry would make the first back-press look dead.
+      renderScreen(screen, params);
+      return;
+    }
+    if (pendingMarkerBacks > 0) {
+      // Render now, push once the marker traversal lands (see
+      // queuedNav in the popstate handler).
+      queuedNav = { screen: screen, params: params || null };
+      renderScreen(screen, params);
+      return;
+    }
+    navDepth += 1;
+    try {
+      history.pushState(makeState(screen, params), '');
+    } catch (e) {
+      navDepth = Math.max(0, navDepth - 1);
+    }
+    renderScreen(screen, params);
+  }
+
+  function visibleSheets() {
+    return $$('.sheet').filter(s => !s.hidden);
+  }
+
+  function hideSheetById(id) {
+    const el = document.getElementById(id);
+    if (el) hideSheetDOM(el);
+  }
+
+  // The Android back gesture (and desktop back) lands here.
+  window.addEventListener('popstate', (e) => {
+    let s = (e && 'state' in e) ? e.state : history.state;
+
+    const hadPending = pendingMarkerBacks > 0;
+    if (hadPending) {
+      pendingMarkerBacks -= 1;
+      if (pendingMarkerBacks > 0) {
+        // Same-tick closeSheet chain: more marker entries to consume.
+        // One traversal per popstate keeps every engine in step.
+        try { history.back(); } catch (err) { /* ignore */ }
+        return;
+      }
+      if (queuedNav) {
+        // Navigation deferred by go() while marker backs were in
+        // flight: the cursor is now below every marker (the markers
+        // themselves are forward entries), so the push truncates them
+        // and lands exactly where it would have without the deferral.
+        const q = queuedNav;
+        queuedNav = null;
+        navDepth += 1;
+        const st = makeState(q.screen, q.params);
+        try { history.pushState(st, ''); } catch (err) { navDepth = Math.max(0, navDepth - 1); }
+        renderScreen(st.screen, st.params);
+        return;
+      }
+      // Last chained marker consumed — fall through and reconcile the
+      // cursor (now below every marker) with the DOM.
+    }
+
+    if (s && s.app && s.sheet) {
+      if (historySheets.indexOf(s.sheet) !== -1) {
+        // Traversed back onto this sheet's marker: close sheets opened
+        // above it (back closes the innermost sheet first).
+        while (historySheets.length && historySheets[historySheets.length - 1] !== s.sheet) {
+          hideSheetById(historySheets.pop());
+        }
+        // Forward/restore case: make sure the marked sheet is visible.
+        const target = document.getElementById(s.sheet);
+        if (target && target.hidden) showSheetDOM(target);
+        navDepth = s.depth || 0;
+        return;
+      }
+      // Marker whose sheet was already closed (a closeSheet-triggered
+      // history.back() raced this traversal): treat it as a plain entry.
+      history.replaceState(
+        { app: true, screen: s.screen, params: s.params, depth: s.depth || 0 }, '');
+      s = history.state;
+    } else if (visibleSheets().length) {
+      // Back pressed while sheet(s) open and we've landed below every
+      // marker: the gesture consumed the sheet, not the screen. Close
+      // them and stay put — the entry we're on belongs to this screen.
+      while (historySheets.length) hideSheetById(historySheets.pop());
+      navDepth = (s && s.depth) || 0;
+      if (s && s.screen && s.screen !== currentScreen) renderScreen(s.screen, s.params);
+      return;
+    }
+
+    if (s && s.app) {
+      navDepth = s.depth || 0;
+      renderScreen(s.screen, s.params);
+    } else {
+      // Unknown/restored entry: fall back to Today.
+      navDepth = 0;
+      try { history.replaceState(makeState('today'), ''); } catch (err) { /* ignore */ }
+      renderScreen('today', null);
+    }
+  });
 
   /* ============================================================
    * Today
@@ -1687,20 +1819,16 @@
    * ============================================================ */
 
   let lastFocused = null;
-  function openSheet(sheet, onShown) {
-    lastFocused = document.activeElement;
+
+  function showSheetDOM(sheet) {
     sheet.hidden = false;
     sheet.setAttribute('aria-hidden', 'false');
     // Lock body scroll while a sheet is open. The sheet panel itself
     // never scrolls off-screen this way, even on short viewports.
     document.body.classList.add('sheet-open');
-    requestAnimationFrame(() => {
-      const f = sheet.querySelector('input, select, textarea, button');
-      if (f) f.focus({ preventScroll: true });
-      if (onShown) onShown();
-    });
   }
-  function closeSheet(sheet) {
+
+  function hideSheetDOM(sheet) {
     sheet.hidden = true;
     sheet.setAttribute('aria-hidden', 'true');
     // Only release the lock if no other sheet is still visible
@@ -1709,6 +1837,50 @@
       document.body.classList.remove('sheet-open');
     }
     if (lastFocused && lastFocused.focus) lastFocused.focus({ preventScroll: true });
+  }
+
+  function openSheet(sheet, onShown) {
+    lastFocused = document.activeElement;
+    // Push a history marker so the Android back gesture closes this
+    // sheet instead of the screen (or the app) behind it. Skip the
+    // marker while a closeSheet traversal is still in flight — a
+    // pushState here would cancel it (and no real interaction opens
+    // a sheet within the same tick as closing one).
+    const markable = pendingMarkerBacks === 0;
+    if (markable) {
+      historySheets.push(sheet.id);
+      try {
+        history.pushState(
+          makeState(currentScreen,
+            currentDayKey ? { dayKey: currentDayKey } : null,
+            { sheet: sheet.id }), '');
+      } catch (e) {
+        historySheets.pop();
+      }
+    }
+    showSheetDOM(sheet);
+    requestAnimationFrame(() => {
+      const f = sheet.querySelector('input, select, textarea, button');
+      if (f) f.focus({ preventScroll: true });
+      if (onShown) onShown();
+    });
+  }
+
+  function closeSheet(sheet) {
+    const idx = historySheets.indexOf(sheet.id);
+    if (idx !== -1) {
+      historySheets.splice(idx, 1);
+      hideSheetDOM(sheet);
+      // Consume the marker entry. If a traversal is already in flight
+      // (same-tick chain), just count it — the popstate handler will
+      // chain the next back() when this one lands.
+      pendingMarkerBacks += 1;
+      if (pendingMarkerBacks === 1) {
+        try { history.back(); } catch (e) { /* ignore */ }
+      }
+    } else if (!sheet.hidden) {
+      hideSheetDOM(sheet);
+    }
   }
 
   function openAddSheet(dayKey) {
@@ -1881,8 +2053,13 @@
       });
     });
 
-    // Day-detail back
-    $('#dayBackBtn').addEventListener('click', () => go('history'));
+    // Day-detail back: use history when we pushed the entry ourselves,
+    // otherwise (restored/refreshed state with nothing behind it) fall
+    // back to a direct navigation so we never exit the app.
+    $('#dayBackBtn').addEventListener('click', () => {
+      if (navDepth > 0) history.back();
+      else go('history');
+    });
 
     // Initial theme
     applyTheme(Store.state.settings.theme || 'system');
@@ -1907,16 +2084,40 @@
   });
 
   // Boot
+  let booted = false;
   document.addEventListener('DOMContentLoaded', () => {
+    // Browsers fire DOMContentLoaded once; guard anyway so a second
+    // delivery (e.g. test harness re-dispatching it) can't double-wire.
+    if (booted) return;
+    booted = true;
     wire();
     // Rules screen back button
     $('#rulesBackBtn').addEventListener('click', () => {
-      go('settings');
+      if (navDepth > 0) history.back();
+      else go('settings');
     });
     if (!Store.state.settings.onboarded) {
+      // Seed a history entry so the first back gesture has a target
+      // and the popstate handler always has a valid state to render.
+      try { history.replaceState(makeState('today'), ''); } catch (e) { /* ignore */ }
       startOnboarding();
     } else {
-      go('today');
+      let s = history.state;
+      if (s && s.app && s.sheet) {
+        // Reloaded while a sheet was open: restore the screen with the
+        // sheet closed and a clean (marker-free) entry.
+        history.replaceState(
+          { app: true, screen: s.screen, params: s.params, depth: s.depth || 0 }, '');
+        s = history.state;
+      }
+      if (s && s.app && s.screen) {
+        navDepth = s.depth || 0;
+        renderScreen(s.screen, s.params);
+      } else {
+        navDepth = 0;
+        try { history.replaceState(makeState('today'), ''); } catch (e) { /* ignore */ }
+        renderScreen('today', null);
+      }
       // If a timer was running, resume the live tick
       if (Store.getTimer().running) startTimerTick();
     }

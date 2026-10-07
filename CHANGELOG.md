@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.0] - 2026-10-07
+
+### Added
+
+- **Android back-gesture navigates within the app (re-imagined after the v1.7.4 revert).** Every screen navigation now pushes a history entry, so the system back gesture (and desktop back) steps through Today → History → Tray → Day Detail → Settings → Rules instead of closing the app. Sheets (Add / Edit / Confirm) push their own history marker, so back closes the innermost sheet first and only leaves the screen once all sheets are gone. In-app back buttons (Day Detail, Rules) share the same path via `history.back()` and fall back to direct navigation when there is no entry behind them (e.g. after a refresh), so they can never exit the app.
+
+### Fixed
+
+- **Failure modes that caused the v1.7.4 revert are addressed in this design:**
+  - *Sheets were not in history* — system back changed the screen underneath an open sheet. Each sheet open now pushes a marker entry; back closes the sheet instead.
+  - *Duplicate entries made back look dead* — re-tapping the current tab or the same history row no longer pushes a duplicate entry (same-screen, same-day navigation just re-renders).
+  - *In-app back buttons could exit the app* — `dayBackBtn` / `rulesBackBtn` only call `history.back()` when the app itself pushed the current entry (`state.depth > 0`), otherwise they navigate directly.
+  - *First back did nothing after a cold start* — both boot paths (returning user and first-run onboarding) now seed `history.state` via `replaceState`.
+  - *Reload while a sheet was open* — the marker is stripped at boot so the restored session starts with a clean entry.
+- **Same-tick navigation races around sheet closing.** `closeSheet` consumes its marker with a `history.back()`, but same-tick chains (Edit → Delete → confirm closes two sheets at once) and same-tick navigation (Delete All Data closes its confirm sheet and calls `go('today')` in the same tick) used to queue traversals that either got cancelled by the subsequent `pushState` or computed `-1` from the wrong entry. Marker traversals are now chained one `popstate` at a time via a pending counter, and `go()` renders immediately but defers its `pushState` until the pending back lands — the marker entries are truncated by the deferred push, leaving no duplicates behind.
+- **Double boot under test harnesses.** The `DOMContentLoaded` handler now guards against a second delivery, so a harness that dispatches the event manually on top of jsdom's automatic one can't `wire()` the UI twice (which duplicated every click listener).
+
+### Tests
+
+- New `nav-tests.js` suite (64 tests): history seeding on both boot paths, tab push + same-place dedupe, popstate rendering, sheet marker push/close, system-back-closes-sheet, cancel consumes marker, day detail back with depth fallback, edit + confirm chain with no dead presses, Delete All Data same-tick navigation, rules back button, restore-on-reload (including null-state fallback and marker stripping).
+- backfill.js total: **48 passing** (was 46; sections 26–27 made async since back buttons now share the history path). Rules suite unchanged at **75 passing**. store-smoke: **12 passing**. Effective total: **48 + 75 + 64 + 12 = 199 passing**.
+- Real-browser verification: 20/20 checks pass in headless Chrome driven over CDP (`cdp-nav.js`) covering boot seeding, tab push/dedupe, back rendering, sheet markers, system back, cancel, day back, the edit+confirm chain, Delete All Data, and the rules back button.
+
 ## [1.7.5] - 2026-10-07
 
 ### Fixed
